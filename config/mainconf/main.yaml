@@ -1,0 +1,20 @@
+# Main configuration file
+# Paths to category-specific config files (relative to config/)
+
+# Src Cut condition
+event:         cuts/event/event.yaml
+track: 	       cuts/track/track.yaml
+pid: 	       cuts/pid/pid.yaml
+v0: 	       cuts/v0reco/v0.yaml
+mixing:        cuts/mixing/mixing.yaml
+
+# Maker
+phi: 	       maker/maker_phi.yaml
+# lambda:	       cuts/dstana/maker_lambda.yaml
+
+# Histogram config (path to YAML that defines histograms for HistManager)
+hist:          hist/hist_phi.yaml
+
+# Analysis info
+analysis:      analysis/analysis_info.yaml
+

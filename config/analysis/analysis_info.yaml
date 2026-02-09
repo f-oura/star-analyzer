@@ -1,0 +1,80 @@
+# Analysis Information
+
+# Dataset Information
+dataset:
+  collisionSystem: "Au+Au"
+  energy: 19.6
+  year: 2019
+  beamEnergy: 19.6
+  # allPicoDstList: "picoDstList/pp500_2022.list"
+  allPicoDstList: "picoDstList/auau19GeV.list"
+  runRange:
+    min: 19000000
+    max: 20000000
+  goodRunList: ""
+  dataQuality: "production"
+  dataSource: "STAR"
+  dataFormat: "picoDst"
+  dataVersion: "SL24y"
+
+# Analysis Information
+analysis:
+  name: "phi_auau19"
+  type: "resonance"
+  targetParticle: "phi"
+  decayChannel: "K+K-"
+  purpose: "Measure φ(1020) production in p+p collisions at 500 GeV"
+  description: |
+    This analysis checks the φ(1020) meson production
+    in p+p collisions at √s = 500 GeV using the K+K- decay channel.
+  method: "invariant_mass"
+  backgroundMethod: "event_mixing"
+  centralityRange:
+    min: 0
+    max: 100
+  ptRange:
+    min: 0.0
+    max: 10.0
+
+# Analyst Information
+analyst:
+  name: "Fumiya Oura"
+  institution: "Tohoku University"
+  email: "fumiya.oura.s8@dc.tohoku.ac.jp"
+
+# Analysis Metadata
+metadata:
+  date: "2026-01-17"
+  version: "1.0"
+  status: "ongoing"
+  codeVersion: "v1.0"
+  codeRepository: "https://github.com/"
+  lastModified: "2026-01-18"
+
+# Related Information
+references:
+  papers:
+    - "arXiv:XXXX.XXXXX"
+    - "Phys.Rev.C XX, XXXX (2024)"
+  notes:
+    - "analysisnote/phi_analysis.md"
+    - "analysisnote/systematic_study.md"
+
+# Output Configuration
+output:
+  namingPattern: "{particle}_{system}_{energy}_{date}_{version}"
+  prefix: "phi"
+  datasetTag: "auau19.564"
+  cutTag: "default"
+  dateFormat: "%Y%m%d"
+  versionFormat: "v{version}"
+  baseDir: "output"
+  subdirectories:
+    rootfiles: "rootfiles"
+    plots: "plots"
+    logs: "logs"
+  extensions:
+    root: ".root"
+    plot: ".pdf"
+    log: ".log"
+  includeMetadata: true

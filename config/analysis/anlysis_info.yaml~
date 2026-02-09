@@ -1,0 +1,82 @@
+# Event Level Cuts
+
+# Analysis Information
+# 解析に関するすべてのメタ情報
+
+# Dataset Information
+dataset:
+  collisionSystem: "Au+Au"
+  energy: 19.6
+  year: 2019
+  beamEnergy: 19.6
+  runList: "picoDstList/auau19GeV.list"
+  runRange:
+    min: 19000000
+    max: 20000000
+  goodRunList: ""
+  dataQuality: "production"
+  dataSource: "STAR"
+  dataFormat: "picoDst"
+  dataVersion: "SL24y"
+
+# Analysis Information
+analysis:
+  name: "phi_pp500_2024"
+  type: "resonance"
+  targetParticle: "phi"
+  decayChannel: "K+K-"
+  purpose: "Measure φ(1020) production in p+p collisions at 500 GeV"
+  description: |
+    This analysis measures the φ(1020) meson production cross section
+    in p+p collisions at √s = 500 GeV using the K+K- decay channel.
+  method: "invariant_mass"
+  backgroundMethod: "event_mixing"
+  centralityRange:
+    min: 0
+    max: 100
+  ptRange:
+    min: 0.0
+    max: 10.0
+
+# Analyst Information
+analyst:
+  name: "Your Name"
+  institution: "Your Institution"
+  email: "your.email@institution.edu"
+
+# Analysis Metadata
+metadata:
+  date: "2024-01-01"
+  version: "1.0"
+  status: "ongoing"
+  codeVersion: "v1.0"
+  codeRepository: "https://github.com/..."
+  lastModified: "2024-01-01"
+
+# Related Information
+references:
+  papers:
+    - "arXiv:XXXX.XXXXX"
+    - "Phys.Rev.C XX, XXXX (2024)"
+  notes:
+    - "analysisnote/phi_analysis.md"
+    - "analysisnote/systematic_study.md"
+
+# Output Configuration
+output:
+  namingPattern: "{particle}_{system}_{energy}_{date}_{version}"
+  prefix: "phi"
+  datasetTag: "pp500"
+  cutTag: "default"
+  dateFormat: "%Y%m%d"
+  versionFormat: "v{version}"
+  baseDir: "output"
+  subdirectories:
+    rootfiles: "rootfiles"
+    plots: "plots"
+    logs: "logs"
+  extensions:
+    root: ".root"
+    plot: ".pdf"
+    log: ".log"
+  includeMetadata: true

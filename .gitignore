@@ -1,0 +1,39 @@
+*.o
+*.so
+*.dylib
+*.pcm
+*.d
+CMakeCache.txt
+CMakeFiles/
+# Makefile
+cmake_install.cmake
+
+# binary
+build/
+bin/
+*.cpp~
+
+# ROOT
+*.root
+rootfile
+
+# ログ・出力テキスト
+*.log
+*.out
+*.pdf
+output/
+picodst
+log
+err
+output
+share
+
+# エディタ設定（VSCode）
+.vscode/
+
+# システムファイル
+.DS_Store
+
+# SUMS generated files (job/run/)
+job/run/phi_analysis_run_ana*
+job/run/joblist_run_ana_Phi_forrun.xml

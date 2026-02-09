@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!--
+  SUMS job.xml for phi analysis with StPhiMaker (run_ana_Phi.C)
+  - Run from job/run/: ./submit.sh (replaces __PROJECT_ROOT__ with actual path, then star-submit).
+  - SandBox uses __PROJECT_ROOT__; submit.sh fills it so paths are user-independent.
+  - Macro: analysis/run_ana_Phi.C
+      Args: inputFile ($FILELIST), outputFile ($SCRATCH/...), jobid ($JOBID), nEventsMax (-1), configPath
+  - Config: 5th arg is config path. Default config/mainconf/main.yaml.
+      To use another setup (e.g. pp500), change to config/mainconf/main_pp500.yaml
+  - Env: starver SL24y, LD_LIBRARY_PATH=$PWD/lib
+  - Output: $SCRATCH/phi_auau19/phi_auau19_ana_Phi_$JOBID.root
+  - Build lib/ (make) before submit.
+  - We remove analysis/ana_Phi_C.so and .d so ACLiC recompiles on the worker and links to $SCRATCH/lib (avoids dlopen failure from submit-node paths).
+-->
+
+<job name="phi_analysis_run_ana" simulateSubmission="false" maxFilesPerProcess="1" fileListSyntax="xrootd" copyInputLocally="true">
+
+  <command>
+    rm -f analysis/ana_Phi_C.so analysis/ana_Phi_C.d 2>/dev/null; pwd &amp;&amp; ls -la &amp;&amp; ls -la config &amp;&amp; starver SL24y &amp;&amp; mkdir -p $SCRATCH/phi_auau19 &amp;&amp; setenv LD_LIBRARY_PATH ${PWD}/lib:${LD_LIBRARY_PATH} &amp;&amp; root4star -q -b analysis/run_ana_Phi.C\(\"$FILELIST\",\"$SCRATCH/phi_auau19/phi_auau19_ana_Phi_$JOBID.root\",\"$JOBID\",-1,\"config/mainconf/main.yaml\"\)
+  </command>
+
+  <stdout URL="file:/star/u/oura/work/starana/analysis_phi_auau19/log/stdout.$JOBID.out" />
+  <stderr URL="file:/star/u/oura/work/starana/analysis_phi_auau19/err/stderr.$JOBID.err" />
+
+  <input
+      URL="catalog:star.bnl.gov?trgsetupname=production_19GeV_2019,production=P24iy,filetype=daq_reco_picoDst,filename~st_physics,storage!=HPSS"
+      nFiles="40"
+  />
+
+  <SandBox>
+    <Package>
+      <File>file:__PROJECT_ROOT__/analysis/</File>
+      <File>file:__PROJECT_ROOT__/lib/</File>
+      <File>file:__PROJECT_ROOT__/config/</File>
+      <File>file:__PROJECT_ROOT__/include/</File>
+      <File>file:__PROJECT_ROOT__/StMaker/</File>
+    </Package>
+  </SandBox>
+
+  <output fromScratch="phi_auau19/phi_auau19_ana_Phi_$JOBID.root" toURL="file:/star/u/oura/work/starana/analysis_phi_auau19/rootfile/phi_auau19/" />
+
+</job>

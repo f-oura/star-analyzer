@@ -1,0 +1,62 @@
+#include "cuts/EventCutConfig.h"
+#include "YamlParser.h"
+#include <map>
+#include <string>
+#include <iostream>
+
+EventCutConfig& EventCutConfig::GetInstance() {
+  static EventCutConfig instance;
+  return instance;
+}
+
+EventCutConfig::EventCutConfig() {
+  SetDefaults();
+}
+
+EventCutConfig::~EventCutConfig() {
+}
+
+void EventCutConfig::SetDefaults() {
+  maxVz = 100.0;
+  maxVr = 2.0;
+  minRefMult = 0.0;
+  maxRefMult = 1000.0;
+  maxVzDiff = 3.0;
+  maxNTr = 0;  // no limit
+}
+
+Bool_t EventCutConfig::LoadFromFile(const Char_t* filename) {
+  return ParseYamlFile(filename);
+}
+
+Bool_t EventCutConfig::ParseYamlFile(const Char_t* filename) {
+  std::map<std::string, std::string> values;
+  if (!YamlParser::ParseFile(filename, values)) {
+    std::cerr << "WARNING: Failed to parse " << filename 
+              << ", using default values" << std::endl;
+    return kFALSE;
+  }
+  
+  // Load values from map
+  if (values.find("maxVz") != values.end()) {
+    maxVz = YamlParser::ToDouble(values["maxVz"], maxVz);
+  }
+  if (values.find("maxVr") != values.end()) {
+    maxVr = YamlParser::ToDouble(values["maxVr"], maxVr);
+  }
+  if (values.find("minRefMult") != values.end()) {
+    minRefMult = YamlParser::ToDouble(values["minRefMult"], minRefMult);
+  }
+  if (values.find("maxRefMult") != values.end()) {
+    maxRefMult = YamlParser::ToDouble(values["maxRefMult"], maxRefMult);
+  }
+  if (values.find("maxVzDiff") != values.end()) {
+    maxVzDiff = YamlParser::ToDouble(values["maxVzDiff"], maxVzDiff);
+  }
+  if (values.find("maxNTr") != values.end()) {
+    maxNTr = YamlParser::ToInt(values["maxNTr"], maxNTr);
+  }
+
+  return kTRUE;
+}
+

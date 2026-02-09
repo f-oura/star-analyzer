@@ -1,0 +1,10 @@
+# Lambda (V0 p+ pi-) reconstruction cuts
+
+nSigmaProton: 2.0
+nSigmaPion: 2.0
+minDCAProton: 0.5    # cm, min DCA to PV for proton (reject primaries)
+minDCAPion: 0.8      # cm, min DCA to PV for pion
+maxDaughterDCA: 1.0   # cm, max DCA between p and pi- at V0 (dca12)
+maxDCAV0: 1.0         # cm, max DCA of Lambda to primary vertex
+minCosPointing: 0.995
+maxPathLength: 100.0  # max |path length| for helix
