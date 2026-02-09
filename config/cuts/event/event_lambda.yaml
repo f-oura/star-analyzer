@@ -6,4 +6,5 @@ maxVr: 2.0            # cm, Vr < maxVr
 minRefMult: 0.0       # Minimum RefMult
 maxRefMult: 1000.0    # Maximum RefMult
 maxVzDiff: 3.0        # cm, |Vz_TPC - Vz_VPD| < maxVzDiff
+maxAbsVzVpd: 200.0    # cm; use VPD only when |vzVpd| < this
 maxNTr: 300           # skip event when nTracks > maxNTr

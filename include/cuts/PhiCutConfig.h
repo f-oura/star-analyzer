@@ -20,6 +20,12 @@ public:
   Double_t maxOpeningAngle;
   Double_t minPairRapidity;
   Double_t maxPairRapidity;
+  // Event-plane (Q-vector) track selection
+  Double_t minPtEp;
+  Double_t maxPtEp;
+  Double_t maxEtaEp;
+  // Event-level: skip event if nTracks > maxNTr (0 = no limit)
+  Int_t maxNTr;
 
   // Set default values
   void SetDefaults();

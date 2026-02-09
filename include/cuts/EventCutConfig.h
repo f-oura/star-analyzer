@@ -14,6 +14,7 @@ public:
   Double_t minRefMult;
   Double_t maxRefMult;
   Double_t maxVzDiff;
+  Double_t maxAbsVzVpd;  // cm; use VPD (e.g. for hVzDiff / vzDiff cut) only when |vzVpd| < this
   Int_t maxNTr;  // 0 or negative = no limit; event skipped when nTracks > maxNTr
 
   // Set default values

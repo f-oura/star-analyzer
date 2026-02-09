@@ -22,6 +22,7 @@ void EventCutConfig::SetDefaults() {
   minRefMult = 0.0;
   maxRefMult = 1000.0;
   maxVzDiff = 3.0;
+  maxAbsVzVpd = 200.0;
   maxNTr = 0;  // no limit
 }
 
@@ -52,6 +53,9 @@ Bool_t EventCutConfig::ParseYamlFile(const Char_t* filename) {
   }
   if (values.find("maxVzDiff") != values.end()) {
     maxVzDiff = YamlParser::ToDouble(values["maxVzDiff"], maxVzDiff);
+  }
+  if (values.find("maxAbsVzVpd") != values.end()) {
+    maxAbsVzVpd = YamlParser::ToDouble(values["maxAbsVzVpd"], maxAbsVzVpd);
   }
   if (values.find("maxNTr") != values.end()) {
     maxNTr = YamlParser::ToInt(values["maxNTr"], maxNTr);

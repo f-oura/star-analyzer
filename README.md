@@ -127,7 +127,7 @@ root4star -b -q "analysis/run_ana_Lambda.C(\"$INPUT\",\"$OUTPUT\",\"$JOBID\",$NE
 2. **Submit from** `job/run/`:
    ```bash
    cd job/run
-   ./submit.sh ../joblist/joblist_run_ana_Lambda.xml
+   ./submit.sh job/joblist/joblist_run_ana_Lambda.xml
    ```
    Use another template (e.g. `../joblist/joblist_run_ana_Phi_forrun.xml`) if needed.
 

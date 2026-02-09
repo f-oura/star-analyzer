@@ -103,7 +103,8 @@ Int_t StPhiMaker::Make() {
     m_histManager->Fill("hRefMult", refMult);
     m_histManager->Fill("hVzVsRun", (Double_t)event->runId(), pVtx.Z());
     m_histManager->Fill("hRefMultVsVz", pVtx.Z(), refMult);
-    if (TMath::Abs(vzVpd) < 200) {
+    EventCutConfig& ev = ConfigManager::GetInstance().GetEventCuts();
+    if (TMath::Abs(vzVpd) < ev.maxAbsVzVpd) {
       m_histManager->Fill("hVzDiff", pVtx.Z() - vzVpd);
     }
     std::vector<unsigned int> triggerIds = event->triggerIds();
@@ -124,7 +125,8 @@ Int_t StPhiMaker::Make() {
   kaonsMinus.reserve(kMaxKaons / 2);
 
   Int_t nTracks = mPicoDst->numberOfTracks();
-  if (nTracks > 500) {
+  PhiCutConfig& phiCfg = ConfigManager::GetInstance().GetPhiCuts();
+  if (phiCfg.maxNTr > 0 && nTracks > phiCfg.maxNTr) {
     return kStOK;
   }
 
@@ -156,7 +158,7 @@ Int_t StPhiMaker::Make() {
       m_histManager->Fill("hNSigmaProtonVsP", pMom.Mag(), trk->nSigmaProton());
     }
 
-    if (pt > 0.15 && pt < 2.0 && TMath::Abs(eta) < 1.0) {
+    if (pt >= phiCfg.minPtEp && pt <= phiCfg.maxPtEp && TMath::Abs(eta) < phiCfg.maxEtaEp) {
       Qx += TMath::Cos(2.0 * phi);
       Qy += TMath::Sin(2.0 * phi);
     }
@@ -286,7 +288,7 @@ Bool_t StPhiMaker::PassEventCuts(Float_t vz, Float_t vr, Int_t refMult, Float_t 
   if (vr > ev.maxVr) return kFALSE;
   if (refMult < ev.minRefMult) return kFALSE;
   if (refMult > ev.maxRefMult) return kFALSE;
-  if (TMath::Abs(vz - vzVpd) > ev.maxVzDiff && TMath::Abs(vzVpd) < 200) return kFALSE;
+  if (TMath::Abs(vz - vzVpd) > ev.maxVzDiff && TMath::Abs(vzVpd) < ev.maxAbsVzVpd) return kFALSE;
   return kTRUE;
 }
 

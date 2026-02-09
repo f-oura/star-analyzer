@@ -28,6 +28,10 @@ void PhiCutConfig::SetDefaults() {
   maxOpeningAngle = 0.5;
   minPairRapidity = -0.8;
   maxPairRapidity = 0.8;
+  minPtEp = 0.15;
+  maxPtEp = 2.0;
+  maxEtaEp = 1.0;
+  maxNTr = 0;  // no limit
 }
 
 Bool_t PhiCutConfig::LoadFromFile(const Char_t* filename) {
@@ -74,6 +78,18 @@ Bool_t PhiCutConfig::ParseYamlFile(const Char_t* filename) {
   }
   if (values.find("maxPairRapidity") != values.end()) {
     maxPairRapidity = YamlParser::ToDouble(values["maxPairRapidity"], maxPairRapidity);
+  }
+  if (values.find("minPtEp") != values.end()) {
+    minPtEp = YamlParser::ToDouble(values["minPtEp"], minPtEp);
+  }
+  if (values.find("maxPtEp") != values.end()) {
+    maxPtEp = YamlParser::ToDouble(values["maxPtEp"], maxPtEp);
+  }
+  if (values.find("maxEtaEp") != values.end()) {
+    maxEtaEp = YamlParser::ToDouble(values["maxEtaEp"], maxEtaEp);
+  }
+  if (values.find("maxNTr") != values.end()) {
+    maxNTr = YamlParser::ToInt(values["maxNTr"], maxNTr);
   }
 
   return kTRUE;

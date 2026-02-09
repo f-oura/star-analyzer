@@ -37,3 +37,37 @@ share
 # SUMS generated files (job/run/)
 job/run/phi_analysis_run_ana*
 job/run/joblist_run_ana_Phi_forrun.xml
+
+# config/: backup files; picoDstList/*.list are user-specific (track only template YAMLs)
+config/**/*~
+config/picoDstList/*.list
+
+# script/: backup and editor temp (track only main scripts)
+script/**/*~
+script/#*#
+script/condor/
+
+# Backup and editor temp (anywhere)
+*~
+.*~
+#*#
+
+# Directories not under version control
+analysisnote/
+backup/
+docs/
+legacy/
+
+# job: root-level xml, job_run_* template copies, and generated files in job/run/
+job/*.xml
+job/joblist/job_run_*.xml
+job/run/*.xml
+
+# script: helper/legacy scripts (track only e.g. setup.sh, run_ana_Lambda.sh)
+script/check*.sh
+script/get_file_list_*.sh
+script/read*.sh
+script/run_ana_Phi.sh
+script/run_analyzePhi.sh
+script/setup_zsh.sh
+script/job_template.xml
