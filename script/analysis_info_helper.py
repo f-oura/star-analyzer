@@ -1,0 +1,206 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+Read mainconf and its analysis info YAML; output libraryTag for setup.sh or generate joblist XML.
+Python 2.7 compatible.
+Usage:
+  python script/analysis_info_helper.py --library-tag [--mainconf PATH]
+  python script/analysis_info_helper.py --generate-joblist [--mainconf PATH] [--project-root PATH]
+"""
+from __future__ import print_function
+import os
+import re
+import sys
+import argparse
+
+try:
+    import yaml
+except ImportError:
+    yaml = None
+
+
+def get_project_root(script_dir):
+    """Script is in script/; project root is parent of script/."""
+    return os.path.dirname(script_dir)
+
+
+def load_yaml(path):
+    if yaml is None:
+        print("ERROR: PyYAML is required. Install with: pip install pyyaml", file=sys.stderr)
+        sys.exit(1)
+    with open(path, 'r') as f:
+        return yaml.safe_load(f)
+
+
+def get_analysis_path_from_mainconf_no_yaml(mainconf_path, config_base):
+    """When PyYAML is missing: grep for 'analysis:' in mainconf (value relative to config/)."""
+    with open(mainconf_path, 'r') as f:
+        for line in f:
+            m = re.search(r'analysis\s*:\s*(\S+)', line)
+            if m:
+                return os.path.join(config_base, m.group(1).strip())
+    return None
+
+
+def get_library_tag_from_file_no_yaml(analysis_path):
+    """When PyYAML is missing: grep for 'libraryTag:' in analysis file (under starTag: block)."""
+    with open(analysis_path, 'r') as f:
+        for line in f:
+            m = re.search(r'libraryTag\s*:\s*(\S+)', line)
+            if m:
+                return m.group(1).strip()
+    return None
+
+
+def get_analysis_path_from_mainconf(mainconf_path, config_base):
+    """mainconf has 'analysis: path'; path is relative to config/."""
+    data = load_yaml(mainconf_path)
+    rel = data.get('analysis') or data.get('analysis info')
+    if not rel:
+        print("ERROR: mainconf has no 'analysis' key: {}".format(mainconf_path), file=sys.stderr)
+        sys.exit(1)
+    rel = rel.strip()
+    return os.path.join(config_base, rel)
+
+
+def load_analysis_info(analysis_path):
+    return load_yaml(analysis_path)
+
+
+def build_catalog_url(star_tag):
+    """Build SUMS catalog URL from starTag."""
+    base = "catalog:star.bnl.gov"
+    parts = []
+    if star_tag.get('triggerSets'):
+        parts.append("trgsetupname={}".format(star_tag['triggerSets']))
+    if star_tag.get('productionTag'):
+        parts.append("production={}".format(star_tag['productionTag']))
+    if star_tag.get('filetype'):
+        parts.append("filetype={}".format(star_tag['filetype']))
+    if star_tag.get('filenameFilter'):
+        parts.append("filename~{}".format(star_tag['filenameFilter']))
+    if star_tag.get('storageExclude'):
+        parts.append("storage!={}".format(star_tag['storageExclude']))
+    return base + "?" + ",".join(parts)
+
+
+def run_macro_to_ana_prefix(run_macro):
+    """run_ana_Lambda.C -> ana_Lambda (for ACLiC .so name)."""
+    if run_macro.startswith('run_ana_') and run_macro.endswith('.C'):
+        return 'ana_' + run_macro[8:-2]
+    return 'ana_unknown'
+
+
+def run_macro_to_joblist_basename(run_macro):
+    """run_ana_Lambda.C -> joblist_run_ana_Lambda.xml"""
+    if run_macro.endswith('.C'):
+        return 'joblist_' + run_macro[:-2] + '.xml'
+    return 'joblist_run_ana_unknown.xml'
+
+
+def main():
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = get_project_root(script_dir)
+    config_base = os.path.join(project_root, 'config')
+
+    parser = argparse.ArgumentParser(description='Read analysis info from mainconf; output libraryTag or generate joblist.')
+    parser.add_argument('--mainconf', default=os.environ.get('MAINCONF', 'config/mainconf/main_lambda.yaml'),
+                        help='Main config path (relative to project root or absolute)')
+    parser.add_argument('--project-root', default=project_root, help='Project root directory')
+    parser.add_argument('--library-tag', action='store_true', help='Print starTag.libraryTag to stdout')
+    parser.add_argument('--generate-joblist', action='store_true', help='Generate joblist XML from template')
+    args = parser.parse_args()
+
+    project_root = os.path.abspath(args.project_root)
+    config_base = os.path.join(project_root, 'config')
+
+    mainconf_path = args.mainconf
+    if not os.path.isabs(mainconf_path):
+        mainconf_path = os.path.join(project_root, mainconf_path)
+    if not os.path.isfile(mainconf_path):
+        print("ERROR: mainconf not found: {}".format(mainconf_path), file=sys.stderr)
+        sys.exit(1)
+
+    if yaml is not None:
+        analysis_path = get_analysis_path_from_mainconf(mainconf_path, config_base)
+        if not os.path.isfile(analysis_path):
+            print("ERROR: analysis info not found: {}".format(analysis_path), file=sys.stderr)
+            sys.exit(1)
+        info = load_analysis_info(analysis_path)
+        star_tag = info.get('starTag') or info.get('startag') or {}
+        analysis = info.get('analysis') or {}
+    else:
+        analysis_path = get_analysis_path_from_mainconf_no_yaml(mainconf_path, config_base)
+        if not analysis_path or not os.path.isfile(analysis_path):
+            print("ERROR: analysis info not found (mainconf: {})".format(mainconf_path), file=sys.stderr)
+            sys.exit(1)
+        star_tag = {}
+        analysis = {}
+
+    if args.library_tag:
+        if yaml is not None:
+            tag = star_tag.get('libraryTag', 'SL24y')
+        else:
+            tag = get_library_tag_from_file_no_yaml(analysis_path)
+            if tag is None:
+                tag = 'SL24y'
+        print(tag)
+        return
+
+    if args.generate_joblist:
+        if yaml is None:
+            print("ERROR: --generate-joblist requires PyYAML. Install with: pip install pyyaml", file=sys.stderr)
+            sys.exit(1)
+        mainconf_rel = args.mainconf if not os.path.isabs(args.mainconf) else os.path.relpath(mainconf_path, project_root)
+        mainconf_for_command = "config/" + mainconf_rel if not mainconf_rel.startswith('config/') else mainconf_rel
+
+        run_macro = analysis.get('runMacro', 'run_ana_Lambda.C')
+        main_conf = analysis.get('mainConf', 'mainconf/main_lambda.yaml')
+        if not main_conf.startswith('config/'):
+            main_conf = 'config/' + main_conf
+
+        job_name = analysis.get('jobName', 'lambda_analysis_run_ana')
+        scratch_subdir = analysis.get('scratchSubdir') or analysis.get('name', 'lambda_auau19')
+        output_stem = analysis.get('outputFileStem', 'lambda_auau19_ana_Lambda')
+        n_files = analysis.get('nFiles', 40)
+        work_dir = analysis.get('workDir', '/star/u/$USER/Path/To/star-analyzer')
+        starver = star_tag.get('libraryTag', 'SL24y')
+        catalog_url = build_catalog_url(star_tag)
+        ana_so_prefix = run_macro_to_ana_prefix(run_macro)
+
+        template_path = os.path.join(project_root, 'job', 'joblist', 'job_template_from_conf.xml')
+        if not os.path.isfile(template_path):
+            print("ERROR: template not found: {}".format(template_path), file=sys.stderr)
+            sys.exit(1)
+        with open(template_path, 'r') as f:
+            content = f.read()
+
+        replacements = [
+            ('__JOB_NAME__', job_name),
+            ('__RUN_MACRO__', run_macro),
+            ('__STARVER__', starver),
+            ('__SCRATCH_SUBDIR__', scratch_subdir),
+            ('__OUTPUT_FILE_STEM__', output_stem),
+            ('__MAINCONF__', main_conf),
+            ('__WORK_DIR__', work_dir),
+            ('__CATALOG_URL__', catalog_url),
+            ('__N_FILES__', str(n_files)),
+            ('__ANA_SO_PREFIX__', ana_so_prefix),
+        ]
+        for placeholder, value in replacements:
+            content = content.replace(placeholder, value)
+
+        out_basename = run_macro_to_joblist_basename(run_macro)
+        out_dir = os.path.join(project_root, 'job', 'joblist')
+        out_path = os.path.join(out_dir, out_basename)
+        with open(out_path, 'w') as f:
+            f.write(content)
+        print("Wrote {}".format(out_path))
+        return
+
+    print("ERROR: specify --library-tag or --generate-joblist", file=sys.stderr)
+    sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()

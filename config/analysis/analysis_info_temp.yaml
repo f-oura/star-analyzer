@@ -1,0 +1,43 @@
+# Analysis Information
+
+# from picoDst Summary from FileCatalog
+starTag:
+  triggerSets: "production_19GeV_2019"
+  stream: "st_physics"
+  collision: "auau19"
+  year: "year2019"
+  productionTag: "P24iy"
+  libraryTag: "SL24y"
+  filetype: "daq_reco_picoDst"
+  filenameFilter: "st_physics"
+  storageExclude: "HPSS"
+
+# Dataset Information
+dataset:
+  collisionSystem: "Au+Au"
+  allPicoDstList: "picoDstList/auau19GeV.list"
+  runRange:
+    min: 19000000
+    max: 20000000
+  goodRunList: ""
+  dataQuality: "production"
+  dataFormat: "picoDst"
+  
+# Analysis Information
+analysis:
+  name: "lambda_auau19"
+  type: ""
+  targetParticle: "Lambda"
+  decayChannel: "p+pi-"
+  workDir: "/star/u/$USER/Path/To/star-analyzer"
+  runMacro: "run_ana_Lambda.C"
+  mainConf: "mainconf/main_lambda.yaml"
+  jobName: "lambda_analysis_run_ana"
+  scratchSubdir: "lambda_auau19"
+  outputFileStem: "lambda_auau19_ana_Lambda"
+  nFiles: 40
+
+analyst:
+  name: "User Name"
+  institute: "Tohoku University"
+  email: "user.email@institute.jp"

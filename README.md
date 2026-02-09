@@ -34,23 +34,50 @@ Only **template/sample** content under `config/` and `job/joblist/` is tracked; 
 | Directory | Description |
 |-----------|-------------|
 | **analysis/** | ROOT macros: `run_ana_XXX.C` (runner: loads libs, compiles `ana_XXX.C+`, calls analysis) and `ana_XXX.C` (StChain + event loop). One pair per analysis (e.g. Lambda, Phi). |
-| **config/** | YAML configs. **Templates/samples only** tracked. Subdirs: `mainconf/` (main YAML that includes the rest), `maker/`, `hist/`, `cuts/` (event, track, pid, v0reco, mixing), `analysis/`, `picoDstList/` (input file lists; user lists are typically untracked). |
+| **config/** | YAML configs. **Templates/samples only** tracked. Subdirs: `mainconf/` (main YAML that includes the rest), `maker/`, `hist/`, `cuts/` (event, track, pid, v0reco, mixing), `analysis/` (e.g. **analysis_info_temp.yaml** — used by setup.sh and joblist generator), `picoDstList/` (input file lists; user lists are typically untracked). |
 | **include/** | Framework headers: `ConfigManager.h`, `HistManager.h`, cut configs (`cuts/*.h`). Used by StMaker and `src/`. |
 | **job/** | Job submission: `job/joblist/` = **template** job XMLs (tracked); `job/run/` = submit directory (`submit.sh`, generated/copied files). Files under `job/run/*.xml` and SUMS outputs are git-ignored. |
 | **lib/** | Built shared libraries (`libStarAnaConfig.so`, `libStXXXMaker.so`). **Contents git-ignored**; produced by `make`. |
 | **StMaker/** | One subdir per Maker (e.g. `StLambdaMaker/`, `StPhiMaker/`). Each has `.h` and `.cxx`; built into `lib/libStXXXMaker.so`. |
-| **script/** | Environment and run scripts: `setup.sh` (starver), `run_ana_Lambda.sh`, `run_ana_Phi.sh`, `job_template.xml`, and helpers (e.g. `get_file_list_*.sh`). |
+| **script/** | Environment and run scripts: `setup.sh` (starver from analysis info), `run_ana_Lambda.sh`, `run_ana_Phi.sh`, `analysis_info_helper.py` (libraryTag + joblist generation), and helpers (e.g. `get_file_list_*.sh`). |
 
 ## Prerequisites and setup
 
-- **STAR environment**: use `starver` (e.g. `starver SL24y`). Set it via `source script/setup.sh` from the project root; adjust the version in `script/setup.sh` if your site uses another one.
+- **STAR environment**: use `starver` (e.g. `starver SL24y`). The version is taken from **analysis info** (see below), not hardcoded.
 - **Build tools**: ROOT, gcc, and CMake (for yaml-cpp). The framework is intended to be buildable with any starver environment (subject to future development).
 
-From the project root:
+**Setup** reads the main config (mainconf) and the analysis info YAML it points to, then runs `starver` with the `libraryTag` from that file. From the project root:
 
 ```bash
 source script/setup.sh
 ```
+
+By default this uses `MAINCONF=config/mainconf/main_lambda.yaml`, which points to `config/analysis/analysis_info_temp.yaml`. To use another analysis (e.g. Phi):
+
+```bash
+export MAINCONF=config/mainconf/main_phi.yaml
+source script/setup.sh
+```
+
+If the helper script or the analysis info is missing or invalid, `setup.sh` will exit with an error.
+
+## Analysis info (analysis_info_temp.yaml)
+
+The file **config/analysis/analysis_info_temp.yaml** (or the one referenced by your mainconf’s `analysis:` key) holds metadata used by `setup.sh` and by the **joblist generator**. After cloning, copy or edit this file so that paths and tags match your environment.
+
+**Main keys:**
+
+| Section | Keys | Purpose |
+|--------|------|--------|
+| **starTag** | `libraryTag`, `triggerSets`, `productionTag`, `filetype`, `filenameFilter`, `storageExclude` | `setup.sh` uses `libraryTag` for `starver`. The rest are used to build the SUMS catalog URL when generating a joblist. |
+| **dataset** | `allPicoDstList`, `runRange`, etc. | Dataset description; can be used by run scripts or docs. |
+| **analysis** | `name`, `workDir`, `runMacro`, `mainConf`, `jobName`, `scratchSubdir`, `outputFileStem`, `nFiles` | **workDir** is the base path for log/err/output in the generated joblist (set to your directory, e.g. `/star/u/$USER/star-analyzer`). The others define the macro, main config, SUMS job name, scratch and output paths, and number of files per job. |
+| **analyst** | `name`, `institute`, `email` | For documentation. |
+
+**Script that uses it:** `script/analysis_info_helper.py` (Python 2.7)
+
+- **`--library-tag`**: Reads mainconf → analysis info and prints `starTag.libraryTag`. Used by `setup.sh`. Works without PyYAML (minimal grep fallback).
+- **`--generate-joblist`**: Reads mainconf → analysis info and fills **job/joblist/job_template_from_conf.xml** with the values above, then writes e.g. `job/joblist/joblist_run_ana_Lambda.xml`. Requires PyYAML (`pip install pyyaml`).
 
 ## Submodules
 
@@ -123,15 +150,34 @@ root4star -b -q "analysis/run_ana_Lambda.C(\"$INPUT\",\"$OUTPUT\",\"$JOBID\",$NE
 
 ### Batch (star-submit)
 
-1. **Build first** at the project root: `source script/setup.sh && make`.
-2. **Submit from** `job/run/`:
+First-time flow (after git clone): customize analysis info → setup → build → generate joblist → submit.
+
+1. **Set your paths in analysis info**  
+   Edit **config/analysis/analysis_info_temp.yaml** (or the file your mainconf’s `analysis:` points to). At least set **analysis.workDir** to your project directory (e.g. `/star/u/$USER/star-analyzer`). This will be used as the base for log, err, and output in the generated joblist.
+
+2. **Setup and build** (from project root):
+   ```bash
+   source script/setup.sh
+   make
+   ```
+   `setup.sh` reads the mainconf (default: `config/mainconf/main_lambda.yaml`) and the analysis info, then runs `starver` with the `libraryTag` from that file.
+
+3. **Generate the joblist** (from project root):
+   ```bash
+   python script/analysis_info_helper.py --generate-joblist
+   ```
+   This uses the default mainconf; to use another:
+   ```bash
+   MAINCONF=config/mainconf/main_phi.yaml python script/analysis_info_helper.py --generate-joblist
+   ```
+   The script writes e.g. **job/joblist/joblist_run_ana_Lambda.xml** from **job/joblist/job_template_from_conf.xml** and the analysis info. You need PyYAML: `pip install pyyaml` (Python 2.7 compatible).
+
+4. **Submit** from `job/run/`:
    ```bash
    cd job/run
-   ./submit.sh job/joblist/joblist_run_ana_Lambda.xml
+   ./submit.sh ../joblist/joblist_run_ana_Lambda.xml
    ```
-   Use another template (e.g. `../joblist/joblist_run_ana_Phi_forrun.xml`) if needed.
-
-`submit.sh` replaces `__PROJECT_ROOT__` in the template with the actual project path so SandBox paths work for any user. If the template uses hardcoded stdout/stderr/output URLs, copy the template and set those URLs to your own log and output directories. See `job/run/README.md` for details.
+   If your generated XML uses `__PROJECT_ROOT__`, `submit.sh` will replace it with the actual project path. Log and output URLs come from **analysis.workDir** in the analysis info. See `job/run/README.md` for more. 
 
 ## Adding a new analysis (new StMaker)
 
@@ -177,17 +223,25 @@ Each analysis has:
   - **Cuts**: `event`, `track`, `pid`, `v0`, `mixing`, and optionally analysis-specific keys (e.g. `phi`, `lambda`).
   - **Maker**: e.g. `lambda: maker/maker_lambda.yaml`.
   - **Hist**: `hist: hist/hist_lambda.yaml`.
-  - **Analysis info**: `analysis: analysis/analysis_info.yaml`.
+  - **Analysis info**: `analysis: analysis/analysis_info_temp.yaml` (or your own file). This file is used by `setup.sh` and by `script/analysis_info_helper.py --generate-joblist`.
 - **Maker config**: Add e.g. `config/maker/maker_my.yaml` and reference it in the main config under the key your Maker expects. Makers read cuts via `ConfigManager::GetInstance().GetXXXCuts()` and the hist path via `GetHistConfigPath()`.
 - **Hist config**: Add e.g. `config/hist/hist_my.yaml` with the same structure as existing hist YAMLs (`axes`, `histograms`). Set the `hist` key in the main config to this file.
 - **New cut type**: If you need a new cut category, add a new key in the main YAML, a new `XxxCutConfig` in `include/cuts/` and `src/cuts/`, and register it in `ConfigManager`. For a new analysis that only uses existing event/track/pid/v0/mixing and maker keys, copying and editing the existing YAMLs under `config/cuts/`, `config/maker/`, and `config/hist/` is enough.
 
 ## Creating a joblist
 
-- **Templates** live in `job/joblist/` (e.g. `joblist_run_ana_Lambda.xml`, `joblist_run_ana_Phi_forrun.xml`). These are the tracked templates.
-- **Copy and edit**: Copy a template to a new name (e.g. `joblist_run_ana_MyMaker.xml`). Then:
-  - **command**: Set the macro and arguments (e.g. `run_ana_XXX.C`, `$FILELIST`, output path under `$SCRATCH`, `$JOBID`, `-1`, and config path).
-  - **SandBox**: Keep `File` entries for `analysis/`, `lib/`, `config/`, `include/`, `StMaker/`. Use `__PROJECT_ROOT__` in paths so `job/run/submit.sh` can substitute the project root.
-  - **stdout / stderr / output toURL**: Set to your log and output directories (these are user-specific and not replaced by `submit.sh`).
-  - **input**: Set the catalog or file list and `nFiles` as needed.
-- **Submit**: From `job/run`, run `./submit.sh ../joblist/YourJoblist.xml`. Ensure `make` has been run so `lib/` contains the required `.so` files.
+**Recommended: generate from analysis info**
+
+1. Ensure **config/analysis/analysis_info_temp.yaml** (or the file referenced by your mainconf’s `analysis:` key) has the keys described in **Analysis info** above, including `workDir`, `runMacro`, `mainConf`, `jobName`, `scratchSubdir`, `outputFileStem`, `nFiles`, and the `starTag` fields for the catalog URL.
+2. From the project root, run:
+   ```bash
+   MAINCONF=config/mainconf/main_myanalysis.yaml python script/analysis_info_helper.py --generate-joblist
+   ```
+   This fills **job/joblist/job_template_from_conf.xml** from the analysis info and writes e.g. **job/joblist/joblist_run_ana_Lambda.xml**. Requires PyYAML.
+3. Submit from `job/run`: `./submit.sh ../joblist/joblist_run_ana_Lambda.xml`.
+
+**Manual edit**
+
+- **Templates** in `job/joblist/`: **job_template_from_conf.xml** (for script-based generation) and concrete joblists (e.g. `joblist_run_ana_Lambda.xml`).
+- To edit by hand: copy a joblist to a new name, then set **command** (macro, `$FILELIST`, `$SCRATCH` path, config path), **stdout/stderr/output toURL** (e.g. from your `workDir`), **input** (catalog URL, `nFiles`), and **SandBox** `File` entries as needed.
+- Submit from `job/run`: `./submit.sh ../joblist/YourJoblist.xml`. Ensure `make` has been run so `lib/` contains the required `.so` files.

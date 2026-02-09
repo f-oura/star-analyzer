@@ -1,13 +1,16 @@
 # Main configuration file for Lambda (V0) analysis
-
+# common
 event:         cuts/event/event_lambda.yaml
 track:         cuts/track/track.yaml
 pid:           cuts/pid/pid.yaml
 v0:            cuts/v0reco/v0.yaml
 mixing:        cuts/mixing/mixing.yaml
 
+#maker
 lambda:        maker/maker_lambda.yaml
 
+#hist
 hist:          hist/hist_lambda.yaml
 
-analysis:      analysis/analysis_info.yaml
+#analysis info
+analysis:      analysis/analysis_info_temp.yaml

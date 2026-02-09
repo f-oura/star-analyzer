@@ -16,8 +16,8 @@
     rm -f analysis/ana_Lambda_C.so analysis/ana_Lambda_C.d 2>/dev/null; pwd &amp;&amp; ls -la config &amp;&amp; starver SL24y &amp;&amp; mkdir -p $SCRATCH/lambda_auau19 &amp;&amp; setenv LD_LIBRARY_PATH ${PWD}/lib:${LD_LIBRARY_PATH} &amp;&amp; root4star -q -b analysis/run_ana_Lambda.C\(\"$FILELIST\",\"$SCRATCH/lambda_auau19/lambda_auau19_ana_Lambda_$JOBID.root\",\"$JOBID\",-1,\"config/mainconf/main_lambda.yaml\"\)
   </command>
 
-  <stdout URL="file:/star/u/oura/work/starana/star-analysis/log/stdout.$JOBID.out" />
-  <stderr URL="file:/star/u/oura/work/starana/star-analysis/err/stderr.$JOBID.err" />
+  <stdout URL="file:/star/u/$USER/PATH/TO/star-analyzer/log/stdout.$JOBID.out" />
+  <stderr URL="file:/star/u/$USER/PATH/TO/star-analyzer/err/stderr.$JOBID.err" />
 
   <input
       URL="catalog:star.bnl.gov?trgsetupname=production_19GeV_2019,production=P24iy,filetype=daq_reco_picoDst,filename~st_physics,storage!=HPSS"
@@ -34,6 +34,6 @@
     </Package>
   </SandBox>
 
-  <output fromScratch="lambda_auau19/lambda_auau19_ana_Lambda_$JOBID.root" toURL="file:/star/u/oura/work/starana/star-analysis/rootfile/lambda_auau19/" />
+  <output fromScratch="lambda_auau19/lambda_auau19_ana_Lambda_$JOBID.root" toURL="file:/star/u/$USER/PATH/TO/star-analyzer/rootfile/lambda_auau19/" />
 
 </job>
