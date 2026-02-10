@@ -1,13 +1,13 @@
-// run_ana_Phi.C - Wrapper to load lib and call ana_Phi
+// run_anaPhi.C - Wrapper to load lib and call anaPhi
 // ROOT -q treats only one macro; load STAR libs first, then libStarAnaConfig, then libStPhiMaker.
-// Usage: root4star -b -q 'run_ana_Phi.C("input.list","output.root","0",100)'
-//        run_ana_Phi.C("input.list","output.root","0",100,"config/mainconf/main_pp500.yaml")'
+// Usage: root4star -b -q 'run_anaPhi.C("input.list","output.root","0",100)'
+//        run_anaPhi.C("input.list","output.root","0",100,"config/mainconf/main_auau19_anaPhi.yaml")'
 
-void run_ana_Phi(const Char_t* inputFile,
-                 const Char_t* outputFile,
-                 const Char_t* jobid = "0",
-                 Long64_t nEventsMax = -1,
-                 const Char_t* configPath = 0)
+void run_anaPhi(const Char_t* inputFile,
+                const Char_t* outputFile,
+                const Char_t* jobid = "0",
+                Long64_t nEventsMax = -1,
+                const Char_t* configPath = 0)
 {
   const char* pwd = gSystem->Getenv("PWD");
   if (!pwd) pwd = ".";
@@ -31,7 +31,6 @@ void run_ana_Phi(const Char_t* inputFile,
   gInterpreter->AddIncludePath("$STAR/StRoot");
   gSystem->AddLinkedLibs(TString::Format("-L%s/lib -lStarAnaConfig -lStPhiMaker -Wl,-rpath,%s/lib", pwd, pwd));
 
-  // ACLiC compiles ana_Phi and links against libStPhiMaker and libStarAnaConfig
-  gROOT->ProcessLine(TString::Format(".L %s/analysis/ana_Phi.C+", pwd));
-  ana_Phi(inputFile, outputFile, jobid, nEventsMax, configPath);
+  gROOT->ProcessLine(TString::Format(".L %s/analysis/anaPhi.C+", pwd));
+  anaPhi(inputFile, outputFile, jobid, nEventsMax, configPath);
 }

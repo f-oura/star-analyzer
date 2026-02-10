@@ -1,7 +1,7 @@
-// ana_Lambda.C - StChain based Lambda (V0 p+ pi-) analysis macro
-// Usage: root4star -b -q 'ana_Lambda.C("input.list","output.root","0",-1)'
-// Run from project root: ./script/run_ana_Lambda.sh
-// ACLiC (.L ana_Lambda.C+) links against libStLambdaMaker for StLambdaMaker
+// anaLambda.C - StChain based Lambda (V0 p+ pi-) analysis macro
+// Usage: root4star -b -q 'anaLambda.C("input.list","output.root","0",-1)'
+// Run from project root: ./script/run_anaLambda.sh
+// ACLiC (.L anaLambda.C+) links against libStLambdaMaker for StLambdaMaker
 
 #include "TROOT.h"
 #include "TInterpreter.h"
@@ -18,8 +18,8 @@
 StChain* chain = 0;
 StLambdaMaker* lambdaMaker = 0;
 
-void ana_Lambda(const Char_t* inputFile = "config/picoDstList/auau19GeV_lambda.list",
-               const Char_t* outputFile = "rootfile/lambda_auau19/lambda_auau19_ana_Lambda.root",
+void anaLambda(const Char_t* inputFile = "config/picoDstList/auau19GeV_lambda.list",
+               const Char_t* outputFile = "rootfile/auau19_anaLambda_temp/auau19_anaLambda_temp.root",
                const Char_t* jobid = "0",
                Long64_t nEventsMax = -1,
                const Char_t* configPath = 0)
@@ -47,7 +47,7 @@ void ana_Lambda(const Char_t* inputFile = "config/picoDstList/auau19GeV_lambda.l
     mainConfigPath = configPath;
     if (mainConfigPath(0) != '/') mainConfigPath = TString(pwd) + "/" + mainConfigPath;
   } else {
-    mainConfigPath = TString(pwd) + "/config/mainconf/main_lambda.yaml";
+    mainConfigPath = TString(pwd) + "/config/mainconf/main_auau19_anaLambda.yaml";
   }
   if (!ConfigManager::GetInstance().LoadConfig(mainConfigPath.Data())) {
     std::cerr << "ERROR: Failed to load config: " << mainConfigPath.Data() << std::endl;

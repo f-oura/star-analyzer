@@ -1,11 +1,10 @@
-# Main configuration file
+# Main configuration file for Phi analysis (auau19_anaPhi)
 # Paths to category-specific config files (relative to config/)
 
-# Src Cut condition
 event:         cuts/event/event_auau19_anaPhi.yaml
-track: 	       cuts/track/track.yaml
-pid: 	       cuts/pid/pid.yaml
-v0: 	       cuts/v0reco/v0.yaml
+track:         cuts/track/track.yaml
+pid:           cuts/pid/pid.yaml
+v0:            cuts/v0reco/v0.yaml
 mixing:        cuts/mixing/mixing.yaml
 
 # Maker
@@ -16,4 +15,3 @@ hist:          hist/hist_auau19_anaPhi.yaml
 
 # Analysis info
 analysis:      analysis/analysis_info_auau19_anaPhi.yaml
-

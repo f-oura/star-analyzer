@@ -1,8 +1,8 @@
-// ana_Phi.C - StChain based phi analysis macro
-// Usage: root4star -b -q 'ana_Phi.C("input.list","output.root","0",-1)'
-//        ana_Phi.C("input.list","output.root","0",-1,"config/mainconf/main_pp500.yaml")
-// Run from project root: ./script/run_ana_Phi.sh
-// ACLiC (.L ana_Phi.C+) links against libStPhiMaker for StPhiMaker
+// anaPhi.C - StChain based phi analysis macro
+// Usage: root4star -b -q 'anaPhi.C("input.list","output.root","0",-1)'
+//        anaPhi.C("input.list","output.root","0",-1,"config/mainconf/main_auau19_anaPhi.yaml")
+// Run from project root: ./script/run_anaPhi.sh
+// ACLiC (.L anaPhi.C+) links against libStPhiMaker for StPhiMaker
 
 #include "TROOT.h"
 #include "TInterpreter.h"
@@ -19,18 +19,17 @@
 StChain* chain = 0;
 StPhiMaker* phiMaker = 0;
 
-void ana_Phi(const Char_t* inputFile = "config/picoDstList/auau19GeV.list",
-             const Char_t* outputFile = "rootfile/phi_auau19/phi_auau19_ana_Phi.root",
-             const Char_t* jobid = "0",
-             Long64_t nEventsMax = -1,
-             const Char_t* configPath = 0)
+void anaPhi(const Char_t* inputFile = "config/picoDstList/auau19GeV.list",
+            const Char_t* outputFile = "rootfile/auau19_anaPhi_temp/auau19_anaPhi_temp.root",
+            const Char_t* jobid = "0",
+            Long64_t nEventsMax = -1,
+            const Char_t* configPath = 0)
 {
   TStopwatch timer;
   timer.Start();
 
   Long64_t nEvents = (nEventsMax > 0) ? nEventsMax : 10000000;
 
-  // STAR libs and StPhiMaker are loaded by run_ana_Phi.C; when called directly, load here
   const char* pwd = gSystem->Getenv("PWD");
   if (!pwd) pwd = ".";
 
@@ -44,13 +43,12 @@ void ana_Phi(const Char_t* inputFile = "config/picoDstList/auau19GeV.list",
     return;
   }
 
-  // Load main config (before StChain so StPhiMaker::Init can use ConfigManager)
   TString mainConfigPath;
   if (configPath && strlen(configPath) > 0) {
     mainConfigPath = configPath;
     if (mainConfigPath(0) != '/') mainConfigPath = TString(pwd) + "/" + mainConfigPath;
   } else {
-    mainConfigPath = TString(pwd) + "/config/mainconf/main.yaml";
+    mainConfigPath = TString(pwd) + "/config/mainconf/main_auau19_anaPhi.yaml";
   }
   if (!ConfigManager::GetInstance().LoadConfig(mainConfigPath.Data())) {
     std::cerr << "ERROR: Failed to load config: " << mainConfigPath.Data() << std::endl;

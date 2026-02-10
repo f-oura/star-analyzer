@@ -7,7 +7,7 @@ Run `star-submit` from **this directory**. SUMS will write generated files (`.cs
 1. **Build at the project root**
    ```bash
    cd /path/to/star-analysis
-   source script/setup.sh config/mainconf/main_lambda.yaml && make
+   source script/setup.sh config/mainconf/main_auau19_anaLambda.yaml && make
    ```
 
 2. **Move to this directory and submit**
@@ -15,7 +15,7 @@ Run `star-submit` from **this directory**. SUMS will write generated files (`.cs
    cd job/run
    ./submit.sh
    ```
-   By default, `submit.sh` uses the template `../joblist/joblist_run_ana_Phi_forrun.xml`. You can pass another template, e.g. `./submit.sh ../joblist/joblist_run_ana_Lambda.xml`.
+   By default, `submit.sh` uses the template `../joblist/joblist_run_anaLambda.xml`. You can pass another template, e.g. `./submit.sh ../joblist/joblist_run_anaPhi.xml`.
 
    `submit.sh` replaces `__PROJECT_ROOT__` in the template with the actual project path, so the same template works for any user.
 

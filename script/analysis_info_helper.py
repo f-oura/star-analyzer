@@ -7,7 +7,7 @@ Usage:
   python script/analysis_info_helper.py --library-tag [--mainconf PATH]
   python script/analysis_info_helper.py --generate-joblist MAINCONF_PATH [--project-root PATH]
 Example:
-  python script/analysis_info_helper.py --generate-joblist config/mainconf/main_lambda.yaml
+  python script/analysis_info_helper.py --generate-joblist config/mainconf/main_auau19_anaLambda.yaml
 """
 from __future__ import print_function
 import os
@@ -86,20 +86,6 @@ def build_catalog_url(star_tag):
     return base + "?" + ",".join(parts)
 
 
-def run_macro_to_ana_prefix(run_macro):
-    """run_ana_Lambda.C -> ana_Lambda (for ACLiC .so name)."""
-    if run_macro.startswith('run_ana_') and run_macro.endswith('.C'):
-        return 'ana_' + run_macro[8:-2]
-    return 'ana_unknown'
-
-
-def run_macro_to_joblist_basename(run_macro):
-    """run_ana_Lambda.C -> joblist_run_ana_Lambda.xml"""
-    if run_macro.endswith('.C'):
-        return 'joblist_' + run_macro[:-2] + '.xml'
-    return 'joblist_run_ana_unknown.xml'
-
-
 def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = get_project_root(script_dir)
@@ -107,7 +93,7 @@ def main():
 
     parser = argparse.ArgumentParser(description='Read analysis info from mainconf; output libraryTag or generate joblist.')
     parser.add_argument('mainconf', nargs='?', default=None,
-                        help='Main config path (e.g. config/mainconf/main_lambda.yaml). For --generate-joblist, pass as argument; for --library-tag, optional (else uses --mainconf).')
+                        help='Main config path (e.g. config/mainconf/main_auau19_anaLambda.yaml). For --generate-joblist, pass as argument; for --library-tag, optional (else uses --mainconf).')
     parser.add_argument('--mainconf', dest='mainconf_opt', default=None,
                         help='Main config path (used by setup.sh). Ignored if mainconf is passed as positional.')
     parser.add_argument('--project-root', default=project_root, help='Project root directory')
@@ -122,7 +108,7 @@ def main():
     if mainconf_arg is None:
         mainconf_arg = args.mainconf_opt
     if mainconf_arg is None and not args.generate_joblist:
-        mainconf_arg = 'config/mainconf/main_lambda.yaml'
+        mainconf_arg = 'config/mainconf/main_auau19_anaLambda.yaml'
     if args.generate_joblist and (mainconf_arg is None or not mainconf_arg.strip()):
         print("ERROR: --generate-joblist requires mainconf. Pass it as the first argument or use --mainconf.", file=sys.stderr)
         sys.exit(1)
@@ -166,19 +152,23 @@ def main():
         mainconf_rel = mainconf_arg if not os.path.isabs(mainconf_arg) else os.path.relpath(mainconf_path, project_root)
         mainconf_for_command = "config/" + mainconf_rel if not mainconf_rel.startswith('config/') else mainconf_rel
 
-        run_macro = analysis.get('runMacro', 'run_ana_Lambda.C')
-        main_conf = analysis.get('mainConf', 'mainconf/main_lambda.yaml')
+        base_run = analysis.get('baseRunMacro', 'run_anaLambda')
+        base_ana = analysis.get('baseAnaMacro', 'anaLambda')
+        run_macro = base_run + '.C'
+        ana_so_prefix = base_ana
+
+        main_conf = analysis.get('mainConf', 'mainconf/main_auau19_anaLambda.yaml')
         if not main_conf.startswith('config/'):
             main_conf = 'config/' + main_conf
 
-        job_name = analysis.get('jobName', 'lambda_analysis_run_ana')
-        scratch_subdir = analysis.get('scratchSubdir') or analysis.get('name', 'lambda_auau19')
-        output_stem = analysis.get('outputFileStem', 'lambda_auau19_ana_Lambda')
+        ana_name = analysis.get('anaName') or analysis.get('name') or 'auau19_anaLambda_temp'
+        job_name = analysis.get('jobName') or ana_name
+        scratch_subdir = analysis.get('scratchSubdir') or ana_name
+        output_stem = analysis.get('outputFileStem') or ana_name
         n_files = analysis.get('nFiles', 40)
         work_dir = analysis.get('workDir', '/star/u/$USER/Path/To/star-analyzer')
         starver = star_tag.get('libraryTag', 'SL24y')
         catalog_url = build_catalog_url(star_tag)
-        ana_so_prefix = run_macro_to_ana_prefix(run_macro)
 
         template_path = os.path.join(project_root, 'job', 'joblist', 'job_template_from_conf.xml')
         if not os.path.isfile(template_path):
@@ -202,7 +192,7 @@ def main():
         for placeholder, value in replacements:
             content = content.replace(placeholder, value)
 
-        out_basename = run_macro_to_joblist_basename(run_macro)
+        out_basename = 'joblist_' + base_run + '.xml'
         out_dir = os.path.join(project_root, 'job', 'joblist')
         out_path = os.path.join(out_dir, out_basename)
         with open(out_path, 'w') as f:

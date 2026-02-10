@@ -1,6 +1,5 @@
-# Analysis Information
+# Analysis Information (Phi, auau19_anaPhi)
 
-# from picoDst Summary from FileCatalog
 starTag:
   triggerSets: "production_19GeV_2019"
   stream: "st_physics"
@@ -12,7 +11,6 @@ starTag:
   filenameFilter: "st_physics"
   storageExclude: "HPSS"
 
-# Dataset Information
 dataset:
   collisionSystem: "Au+Au"
   allPicoDstList: "picoDstList/auau19GeV.list"
@@ -22,20 +20,17 @@ dataset:
   goodRunList: ""
   dataQuality: "production"
   dataFormat: "picoDst"
-  
-# Analysis Information
-# anaName = {system}_{anaId}[_condition]; use YAML alias *anaName for name, jobName, scratchSubdir, outputFileStem.
-# baseRunMacro / baseAnaMacro = macro base names (no .C); runMacro is deprecated.
+
 analysis:
-  anaName: &anaName "auau19_anaLambda_temp"
+  anaName: &anaName "auau19_anaPhi_temp"
   name: *anaName
-  type: ""
-  targetParticle: "Lambda"
-  decayChannel: "p+pi-"
+  type: "resonance"
+  targetParticle: "phi"
+  decayChannel: "K+K-"
   workDir: "/star/u/$USER/Path/To/star-analyzer"
-  baseRunMacro: "run_anaLambda"
-  baseAnaMacro: "anaLambda"
-  mainConf: "mainconf/main_auau19_anaLambda.yaml"
+  baseRunMacro: "run_anaPhi"
+  baseAnaMacro: "anaPhi"
+  mainConf: "mainconf/main_auau19_anaPhi.yaml"
   jobName: *anaName
   scratchSubdir: *anaName
   outputFileStem: *anaName
