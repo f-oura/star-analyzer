@@ -39,24 +39,23 @@ Only **template/sample** content under `config/` and `job/joblist/` is tracked; 
 | **job/** | Job submission: `job/joblist/` = **template** job XMLs (tracked); `job/run/` = submit directory (`submit.sh`, generated/copied files). Files under `job/run/*.xml` and SUMS outputs are git-ignored. |
 | **lib/** | Built shared libraries (`libStarAnaConfig.so`, `libStXXXMaker.so`). **Contents git-ignored**; produced by `make`. |
 | **StMaker/** | One subdir per Maker (e.g. `StLambdaMaker/`, `StPhiMaker/`). Each has `.h` and `.cxx`; built into `lib/libStXXXMaker.so`. |
-| **script/** | Environment and run scripts: `setup.sh` (starver from analysis info), `run_ana_Lambda.sh`, `run_ana_Phi.sh`, `analysis_info_helper.py` (libraryTag + joblist generation), and helpers (e.g. `get_file_list_*.sh`). |
+| **script/** | Environment and run scripts: `setup.sh` (starver from analysis info), `generate_joblist.sh` (joblist XML from mainconf), `run_ana_Lambda.sh`, `run_ana_Phi.sh`, `analysis_info_helper.py` (libraryTag + joblist generation), and helpers (e.g. `get_file_list_*.sh`). |
 
 ## Prerequisites and setup
 
 - **STAR environment**: use `starver` (e.g. `starver SL24y`). The version is taken from **analysis info** (see below), not hardcoded.
 - **Build tools**: ROOT, gcc, and CMake (for yaml-cpp). The framework is intended to be buildable with any starver environment (subject to future development).
 
-**Setup** reads the main config (mainconf) and the analysis info YAML it points to, then runs `starver` with the `libraryTag` from that file. From the project root:
+**Setup** reads the main config (mainconf) and the analysis info YAML it points to, then runs `starver` with the `libraryTag` from that file. From the project root, pass the mainconf path as the first argument:
 
 ```bash
-source script/setup.sh
+source script/setup.sh config/mainconf/main_lambda.yaml
 ```
 
-By default this uses `MAINCONF=config/mainconf/main_lambda.yaml`, which points to `config/analysis/analysis_info_temp.yaml`. To use another analysis (e.g. Phi):
+For another analysis (e.g. Phi):
 
 ```bash
-export MAINCONF=config/mainconf/main_phi.yaml
-source script/setup.sh
+source script/setup.sh config/mainconf/main_phi.yaml
 ```
 
 If the helper script or the analysis info is missing or invalid, `setup.sh` will exit with an error.
@@ -104,7 +103,7 @@ Without the submodule populated, `make` will fail when building the config libra
 From the project root:
 
 ```bash
-source script/setup.sh
+source script/setup.sh config/mainconf/main_lambda.yaml
 make
 ```
 
@@ -157,20 +156,20 @@ First-time flow (after git clone): customize analysis info → setup → build �
 
 2. **Setup and build** (from project root):
    ```bash
-   source script/setup.sh
+   source script/setup.sh config/mainconf/main_lambda.yaml
    make
    ```
-   `setup.sh` reads the mainconf (default: `config/mainconf/main_lambda.yaml`) and the analysis info, then runs `starver` with the `libraryTag` from that file.
+   `setup.sh` reads the mainconf you pass and the analysis info, then runs `starver` with the `libraryTag` from that file.
 
-3. **Generate the joblist** (from project root):
+3. **Generate the joblist** (from project root). Pass the mainconf path:
    ```bash
-   python script/analysis_info_helper.py --generate-joblist
+   ./script/generate_joblist.sh config/mainconf/main_lambda.yaml
    ```
-   This uses the default mainconf; to use another:
+   For another analysis (e.g. Phi):
    ```bash
-   MAINCONF=config/mainconf/main_phi.yaml python script/analysis_info_helper.py --generate-joblist
+   ./script/generate_joblist.sh config/mainconf/main_phi.yaml
    ```
-   The script writes e.g. **job/joblist/joblist_run_ana_Lambda.xml** from **job/joblist/job_template_from_conf.xml** and the analysis info. You need PyYAML: `pip install pyyaml` (Python 2.7 compatible).
+   This writes e.g. **job/joblist/joblist_run_ana_Lambda.xml** from **job/joblist/job_template_from_conf.xml** and the analysis info. Requires PyYAML: `pip install pyyaml` (Python 2.7 compatible).
 
 4. **Submit** from `job/run/`:
    ```bash
@@ -235,7 +234,7 @@ Each analysis has:
 1. Ensure **config/analysis/analysis_info_temp.yaml** (or the file referenced by your mainconf’s `analysis:` key) has the keys described in **Analysis info** above, including `workDir`, `runMacro`, `mainConf`, `jobName`, `scratchSubdir`, `outputFileStem`, `nFiles`, and the `starTag` fields for the catalog URL.
 2. From the project root, run:
    ```bash
-   MAINCONF=config/mainconf/main_myanalysis.yaml python script/analysis_info_helper.py --generate-joblist
+   ./script/generate_joblist.sh config/mainconf/main_myanalysis.yaml
    ```
    This fills **job/joblist/job_template_from_conf.xml** from the analysis info and writes e.g. **job/joblist/joblist_run_ana_Lambda.xml**. Requires PyYAML.
 3. Submit from `job/run`: `./submit.sh ../joblist/joblist_run_ana_Lambda.xml`.

@@ -7,7 +7,7 @@ Run `star-submit` from **this directory**. SUMS will write generated files (`.cs
 1. **Build at the project root**
    ```bash
    cd /path/to/star-analysis
-   source script/setup.sh && make
+   source script/setup.sh config/mainconf/main_lambda.yaml && make
    ```
 
 2. **Move to this directory and submit**

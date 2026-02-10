@@ -5,7 +5,9 @@ Read mainconf and its analysis info YAML; output libraryTag for setup.sh or gene
 Python 2.7 compatible.
 Usage:
   python script/analysis_info_helper.py --library-tag [--mainconf PATH]
-  python script/analysis_info_helper.py --generate-joblist [--mainconf PATH] [--project-root PATH]
+  python script/analysis_info_helper.py --generate-joblist MAINCONF_PATH [--project-root PATH]
+Example:
+  python script/analysis_info_helper.py --generate-joblist config/mainconf/main_lambda.yaml
 """
 from __future__ import print_function
 import os
@@ -104,8 +106,10 @@ def main():
     config_base = os.path.join(project_root, 'config')
 
     parser = argparse.ArgumentParser(description='Read analysis info from mainconf; output libraryTag or generate joblist.')
-    parser.add_argument('--mainconf', default=os.environ.get('MAINCONF', 'config/mainconf/main_lambda.yaml'),
-                        help='Main config path (relative to project root or absolute)')
+    parser.add_argument('mainconf', nargs='?', default=None,
+                        help='Main config path (e.g. config/mainconf/main_lambda.yaml). For --generate-joblist, pass as argument; for --library-tag, optional (else uses --mainconf).')
+    parser.add_argument('--mainconf', dest='mainconf_opt', default=None,
+                        help='Main config path (used by setup.sh). Ignored if mainconf is passed as positional.')
     parser.add_argument('--project-root', default=project_root, help='Project root directory')
     parser.add_argument('--library-tag', action='store_true', help='Print starTag.libraryTag to stdout')
     parser.add_argument('--generate-joblist', action='store_true', help='Generate joblist XML from template')
@@ -114,7 +118,15 @@ def main():
     project_root = os.path.abspath(args.project_root)
     config_base = os.path.join(project_root, 'config')
 
-    mainconf_path = args.mainconf
+    mainconf_arg = args.mainconf
+    if mainconf_arg is None:
+        mainconf_arg = args.mainconf_opt
+    if mainconf_arg is None and not args.generate_joblist:
+        mainconf_arg = 'config/mainconf/main_lambda.yaml'
+    if args.generate_joblist and (mainconf_arg is None or not mainconf_arg.strip()):
+        print("ERROR: --generate-joblist requires mainconf. Pass it as the first argument or use --mainconf.", file=sys.stderr)
+        sys.exit(1)
+    mainconf_path = mainconf_arg
     if not os.path.isabs(mainconf_path):
         mainconf_path = os.path.join(project_root, mainconf_path)
     if not os.path.isfile(mainconf_path):
@@ -151,7 +163,7 @@ def main():
         if yaml is None:
             print("ERROR: --generate-joblist requires PyYAML. Install with: pip install pyyaml", file=sys.stderr)
             sys.exit(1)
-        mainconf_rel = args.mainconf if not os.path.isabs(args.mainconf) else os.path.relpath(mainconf_path, project_root)
+        mainconf_rel = mainconf_arg if not os.path.isabs(mainconf_arg) else os.path.relpath(mainconf_path, project_root)
         mainconf_for_command = "config/" + mainconf_rel if not mainconf_rel.startswith('config/') else mainconf_rel
 
         run_macro = analysis.get('runMacro', 'run_ana_Lambda.C')
