@@ -8,6 +8,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 MAINCONF="${1:?Usage: source script/setup.sh MAINCONF_PATH (e.g. config/mainconf/main_auau19_anaLambda.yaml)}"
 
 LIBRARY_TAG=$(cd "$PROJECT_ROOT" && python script/analysis_info_helper.py --library-tag --mainconf "$MAINCONF") || exit 1
+LIBRARY_TAG=$(echo "$LIBRARY_TAG" | xargs)
 starver "$LIBRARY_TAG"
 
 echo "LIBRARY_TAG: $LIBRARY_TAG"

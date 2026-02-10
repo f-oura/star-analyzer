@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 
 <!--
-  SUMS job template: fill placeholders from analysis_info (via analysis_info_helper.py --generate-joblist).
+  SUMS job template: fill placeholders from analysis_info (via analysis_info_helper.py, option generate-joblist).
   Placeholders: __JOB_NAME__, __RUN_MACRO__, __STARVER__, __SCRATCH_SUBDIR__, __OUTPUT_FILE_STEM__,
   __MAINCONF__, __WORK_DIR__, __CATALOG_URL__, __N_FILES__, __ANA_SO_PREFIX__
 -->

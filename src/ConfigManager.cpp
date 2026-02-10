@@ -12,7 +12,18 @@
 #include <map>
 #include <string>
 #include <iostream>
+#include <fstream>
 #include <cstring>
+
+namespace {
+  std::string trimWhitespace(const std::string& s) {
+    const char* ws = " \t\r\n";
+    size_t start = s.find_first_not_of(ws);
+    if (start == std::string::npos) return "";
+    size_t end = s.find_last_not_of(ws);
+    return s.substr(start, end - start + 1);
+  }
+}
 
 ConfigManager& ConfigManager::GetInstance() {
   static ConfigManager instance;
@@ -72,6 +83,7 @@ Bool_t ConfigManager::ParseMainConfig(const Char_t* filename) {
 
   m_mainConfigValues = values;
   m_configBasePath = basePath;
+  m_anaName.clear();
 
   // Load each config file (relativePath is under config/; fullPath = basePath + "config/" + relativePath)
   Bool_t success = kTRUE;
@@ -147,18 +159,56 @@ Bool_t ConfigManager::ParseMainConfig(const Char_t* filename) {
   } else {
     std::cerr << "WARNING: 'mixing' key not found in main config" << std::endl;
   }
-  
+
+  if (values.find("analysis") != values.end()) {
+    std::string analysisRel = trimWhitespace(values["analysis"]);
+    if (!analysisRel.empty()) {
+      std::string analysisPath = basePath;
+      if (!analysisPath.empty() && analysisPath[analysisPath.length() - 1] != '/') {
+        analysisPath += "/";
+      }
+      analysisPath += "config/";
+      analysisPath += analysisRel;
+      ParseAnalysisInfoAnaName(analysisPath);
+    }
+  }
+
   return success;
 }
 
-namespace {
-  std::string trimWhitespace(const std::string& s) {
-    const char* ws = " \t\r\n";
-    size_t start = s.find_first_not_of(ws);
-    if (start == std::string::npos) return "";
-    size_t end = s.find_last_not_of(ws);
-    return s.substr(start, end - start + 1);
+Bool_t ConfigManager::ParseAnalysisInfoAnaName(const std::string& analysisInfoPath) {
+  m_anaName.clear();
+  std::ifstream file(analysisInfoPath.c_str());
+  if (!file.is_open()) {
+    std::cerr << "WARNING: Cannot open analysis info file: " << analysisInfoPath << std::endl;
+    return kFALSE;
   }
+  std::string line;
+  while (std::getline(file, line)) {
+    if (line.find("anaName") == std::string::npos) continue;
+    size_t q1 = line.find('"');
+    if (q1 != std::string::npos) {
+      size_t q2 = line.find('"', q1 + 1);
+      if (q2 != std::string::npos && q2 > q1 + 1) {
+        m_anaName = line.substr(q1 + 1, q2 - q1 - 1);
+        break;
+      }
+    }
+    q1 = line.find('\'');
+    if (q1 != std::string::npos) {
+      size_t q2 = line.find('\'', q1 + 1);
+      if (q2 != std::string::npos && q2 > q1 + 1) {
+        m_anaName = line.substr(q1 + 1, q2 - q1 - 1);
+        break;
+      }
+    }
+  }
+  file.close();
+  return kTRUE;
+}
+
+std::string ConfigManager::GetAnaName() const {
+  return m_anaName;
 }
 
 std::string ConfigManager::GetHistConfigPath() {

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 
 <!--
-  SUMS job template: fill placeholders from analysis_info (via analysis_info_helper.py --generate-joblist).
+  SUMS job template: fill placeholders from analysis_info (via analysis_info_helper.py, option generate-joblist).
   Placeholders: auau19_anaLambda_temp, run_anaLambda.C, SL24y, auau19_anaLambda_temp, auau19_anaLambda_temp,
   config/mainconf/main_auau19_anaLambda.yaml, /star/u/$USER/Path/To/star-analyzer, catalog:star.bnl.gov?trgsetupname=production_19GeV_2019,production=P24iy,filetype=daq_reco_picoDst,filename~st_physics,storage!=HPSS, 40, anaLambda
 -->

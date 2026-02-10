@@ -25,6 +25,9 @@ public:
    *  Returns empty string if key missing or value empty. */
   std::string GetHistConfigPath();
 
+  /** Return anaName from analysis_info (mainconf key "analysis"). Empty if not set. */
+  std::string GetAnaName() const;
+
   // Access to cut config classes
   EventCutConfig& GetEventCuts();
   TrackCutConfig& GetTrackCuts();
@@ -58,6 +61,9 @@ private:
   Bool_t isLoaded;
   std::map<std::string, std::string> m_mainConfigValues;  ///< Parsed key-value from main.yaml
   std::string m_configBasePath;  ///< Project root (path before /config/, trailing slash included)
+  std::string m_anaName;        ///< From analysis_info (key analysis.anaName)
+
+  Bool_t ParseAnalysisInfoAnaName(const std::string& analysisInfoPath);
 };
 
 #endif

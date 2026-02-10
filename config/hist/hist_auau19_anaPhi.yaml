@@ -6,8 +6,8 @@
 axes:
   MKK: &MKK
     nBins: 200
-    min: 0.99
-    max: 1.05
+    min: 0.98
+    max: 1.18
   OpeningAngle: &OpeningAngle
     nBins: 100
     min: 0.0

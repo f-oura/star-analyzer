@@ -22,12 +22,12 @@ dataset:
   dataFormat: "picoDst"
 
 analysis:
-  anaName: &anaName "auau19_anaPhi"
+  anaName: &anaName "auau19_anaPhi_temp"
   name: *anaName
   type: "resonance"
   targetParticle: "phi"
   decayChannel: "K+K-"
-  workDir: "/star/u/oura/work/star-analysis"
+  workDir: "/star/u/$USER/Path/To/star-analyzer"
   baseRunMacro: "run_anaPhi"
   baseAnaMacro: "anaPhi"
   mainConf: "mainconf/main_auau19_anaPhi.yaml"

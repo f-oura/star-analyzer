@@ -65,7 +65,8 @@ namespace PdfHeader {
 				const char* macroName,
 				const std::vector<std::string>& inputFiles,      
 				const char* extraNote = "",
-				bool landscape = true)
+				bool landscape = true,
+				const char* anaName = 0)
   {
     if (landscape) gStyle->SetPaperSize(29.7, 21.0);
     else           gStyle->SetPaperSize(21.0, 29.7);
@@ -106,6 +107,9 @@ namespace PdfHeader {
     body->AddText(Form("Work dir   : %s", cwd.Data()));
     body->AddText(Form("ROOT ver.  : %s", rootver.Data()));
     body->AddText(Form("Macro      : %s", macroName));
+    if (anaName && anaName[0] != '\0') {
+      body->AddText(Form("Analysis (conf) : %s", anaName));
+    }
     body->AddText(Form("Git commit : %s", gitHash.Data()));
     body->AddText(" ");
     body->AddText("Input files:");

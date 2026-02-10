@@ -6,6 +6,9 @@
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
+
+"$SCRIPT_DIR/setup_symlinks.sh"
+
 PROJECT_ROOT="$(cd .. && cd .. && pwd)"
 TEMPLATE="${1:-../joblist/joblist_run_anaLambda.xml}"
 OUTPUT="$(basename "$TEMPLATE")"

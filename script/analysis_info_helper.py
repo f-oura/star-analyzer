@@ -54,6 +54,21 @@ def get_library_tag_from_file_no_yaml(analysis_path):
     return None
 
 
+def get_ana_name_from_file_no_yaml(analysis_path):
+    """When PyYAML is missing: grep for 'anaName:' and extract quoted value."""
+    with open(analysis_path, 'r') as f:
+        for line in f:
+            if 'anaName' not in line:
+                continue
+            m = re.search(r'anaName\s*:\s*(?:&\w+\s+)?["\']([^"\']+)["\']', line)
+            if m:
+                return m.group(1).strip()
+            m = re.search(r'anaName\s*:\s*(\S+)', line)
+            if m:
+                return m.group(1).strip()
+    return None
+
+
 def get_analysis_path_from_mainconf(mainconf_path, config_base):
     """mainconf has 'analysis: path'; path is relative to config/."""
     data = load_yaml(mainconf_path)
@@ -98,6 +113,7 @@ def main():
                         help='Main config path (used by setup.sh). Ignored if mainconf is passed as positional.')
     parser.add_argument('--project-root', default=project_root, help='Project root directory')
     parser.add_argument('--library-tag', action='store_true', help='Print starTag.libraryTag to stdout')
+    parser.add_argument('--ana-name', action='store_true', help='Print analysis anaName from analysis_info to stdout')
     parser.add_argument('--generate-joblist', action='store_true', help='Generate joblist XML from template')
     args = parser.parse_args()
 
@@ -143,6 +159,16 @@ def main():
             if tag is None:
                 tag = 'SL24y'
         print(tag)
+        return
+
+    if args.ana_name:
+        if yaml is not None:
+            name = analysis.get('anaName') or analysis.get('name') or 'auau19_anaPhi'
+        else:
+            name = get_ana_name_from_file_no_yaml(analysis_path)
+            if name is None:
+                name = 'auau19_anaPhi'
+        print(name)
         return
 
     if args.generate_joblist:
@@ -200,7 +226,7 @@ def main():
         print("Wrote {}".format(out_path))
         return
 
-    print("ERROR: specify --library-tag or --generate-joblist", file=sys.stderr)
+    print("ERROR: specify --library-tag, --ana-name, or --generate-joblist", file=sys.stderr)
     sys.exit(1)
 
 
