@@ -433,7 +433,7 @@ First-time flow (after git clone): customize analysis info → setup → build �
   This means a `jobid` now resolves not only to config and XML, but also to the submit-time code state and exact SUMS-expanded job wrappers. See [job/run/README.md](../job/run/README.md) for the operational view.
 
 5. **Cleaning up job/run**  
-   After submission, `job/run/` is filled with many files named `anaName+jobid+*` (`.csh`, `.list`, etc.). The stable submit-time copy now lives in `job/run/runmeta/sums_artifacts_<anaName>_<jobid>.tar.gz`, so removing or archiving the loose originals is no longer your only reproducibility path. To delete them (avoids "Argument list too long"): `cd job/run && ./cleanup_job_run.sh <anaName+jobid>`. To move them into an archive instead: `cd job/run && ./archive_job_run.sh <anaName+jobid>` (files go to `job/run/joblog/<anaName>/`; the directory is created if needed).
+   After submission, `job/run/` is filled with many files named `anaName+jobid+*` (`.csh`, `.list`, etc.). The stable submit-time copy now lives in `job/run/runmeta/sums_artifacts_<anaName>_<jobid>.tar.gz`, so removing or archiving the loose originals is no longer your only reproducibility path. To delete one job's loose files (avoids "Argument list too long"): `cd job/run && ./script/cleanup_job_run.sh <anaName+jobid>`. To delete all loose SUMS files in one pass: `cd job/run && ./script/cleanup_job_run.sh --all`; this only targets regular files directly under `job/run/` whose names contain a 32-hex jobid and preserves all subdirectories. To move one job into an archive instead: `cd job/run && ./archive_job_run.sh <anaName+jobid>` (files go to `job/run/joblog/<anaName>/`; the directory is created if needed).
 
 ## Disk quota (home + GPFS)
 

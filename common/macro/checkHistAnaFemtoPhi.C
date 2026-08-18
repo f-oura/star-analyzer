@@ -6118,3 +6118,186 @@ void checkHistAnaFemtoPhi(const Char_t* inputRootFile,
 
     PdfHeader::OpenPdf(method3AllKstarPdf);
     c1->Clear();
+    // Omit native / k*-rebinned all-k* fit+purity pages (~p1-180); keep only ROT/MIX
+    // mass-background subtraction QA (+ CF from S), with mass Rebin(kMethod3BkgSubMassRebin).
+    drawMethod3BkgSubSection(c1, fin, method3AllKstarPdf, centProjKeepAlive, cfCache, method3MetaCache);
+
+    c1->SetCanvasSize(1200, 800);
+    PdfHeader::ClosePdf(method3AllKstarPdf);
+  }
+
+  // Method3 sidecar after AllKstar so bkgsub CF graphs are included.
+  writeMethod3SidecarRoot(outDir, anaName, jobid, inputRootFile, mainconfPath, cfCache, method3MetaCache);
+
+
+
+
+  // Console: verify key histograms exist and have entries
+  {
+    std::cout << "\n=== checkHistAnaFemtoPhi: key histogram entries ===\n";
+    const char* keys[] = {"hVz",
+                           "hVz_After",
+                           "hCentrality",
+                           "hNSigmaKaon_Raw",
+                           "hK_Pt",
+                           "hNKaonMinusFemto",
+                           "hKm_Pt_PreFemtoCut",
+                           "hKm_Pt",
+                           "hKm_Mass2VsP",
+                           "hNSigmaProtonVsPt_Pos",
+                           "hPairRapidity_vs_Pt",
+                           "hOpeningAngle_Raw",
+                           "hPairRapidity_AfterCuts",
+                           "hPhiPair_Mass_stage0",
+                           "hPhiPair_Mass_tofStrict",
+                           "hPhi_MKK_PreCut",
+                           "hPhi_PtVsY_PreCut",
+                           "hPhi_MKK",
+                           "hPhi_PtVsY_PostCut",
+                           "hPhi_MKK_signal",
+                           "hPhi_MKK_leftSB",
+                           "hPhi_MKK_rightSB",
+                           "hPhi_MKK_rot",
+                           "hPhi_MKK_vs_BetaGamma",
+                           "hPhiRot_MKK",
+                           "hPhi_NCand",
+                           "hP_Pt_PreFemtoCut",
+                           "hP_Pt",
+                           "hP_NCand",
+                           "hDeuteron_Pt_PreFemtoCut",
+                           "hDeuteron_NCand",
+                           "hTriton_Pt_PreFemtoCut",
+                           "hTriton_NCand",
+                           "hHe3_Pt_PreFemtoCut",
+                           "hHe3_NCand",
+                           "hHe4_Pt_PreFemtoCut",
+                           "hHe4_Pt",
+                           "hHe4_NCand",
+                           "hNSigmaProtonVsP",
+                           "hNSigmaDeuteronVsP_All",
+                           "hNSigmaTritonVsP_All",
+                           "hNSigmaHe3VsP_All",
+                           "hNSigmaHe4VsP_All",
+                           "hNProton_vs_Cent9",
+                           "hNDeuteron_vs_Cent9",
+                           "hNTriton_vs_Cent9",
+                           "hNHe3_vs_Cent9",
+                           "hNHe4_vs_Cent9",
+                           "hMass2VsPt_TpcKaon",
+                           "hDCAKK_All",
+                           "hDCAKK_Pass",
+                           "hDedxVsP_PhiSignalNear_k1",
+                           "hMass2ChargeVsP_PhiSignalNear_k1",
+                           "hDedxVsP_PhiSignalNear_k03",
+                           "hMass2ChargeVsP_PhiSignalNear_k03",
+                           0};
+    for (Int_t i = 0; keys[i]; ++i) {
+      TObject* o = fin->Get(keys[i]);
+      if (!o) {
+        std::cout << "  " << keys[i] << ": NOT IN FILE\n";
+        continue;
+      }
+      if (o->InheritsFrom("TH1")) {
+        TH1* hh = (TH1*)o;
+        Double_t n = hh->GetEntries();
+        std::cout << "  " << keys[i] << ": entries=" << n;
+        if (n < 1.0)
+          std::cout << "  [empty — use ROOT from a run after new hist fills]";
+        std::cout << "\n";
+      } else {
+        std::cout << "  " << keys[i] << ": unexpected class " << o->ClassName() << "\n";
+      }
+    }
+    std::cout << "  --- hPhiPairMomAngle (phi-bachelor QA) ---\n";
+    for (Int_t ib = 0; ib < kNBachelorQaSpecs; ++ib) {
+      const char* base = kBachelorQaSpecs[ib].channelBase;
+      const TString angleKeyStrs[4] = {phiPairMomAngleKey(base, kFALSE, kFALSE), phiPairMomAngleKey(base, kFALSE, kTRUE),
+                                         phiPairMomAngleKey(base, kTRUE, kFALSE), phiPairMomAngleKey(base, kTRUE, kTRUE)};
+      for (Int_t ik = 0; ik < 4; ++ik) {
+        TObject* o = fin->Get(angleKeyStrs[ik]);
+        if (!o) {
+          std::cout << "  " << angleKeyStrs[ik].Data() << ": NOT IN FILE\n";
+          continue;
+        }
+        if (o->InheritsFrom("TH1")) {
+          TH1* hh = (TH1*)o;
+          std::cout << "  " << angleKeyStrs[ik].Data() << ": entries=" << hh->GetEntries() << "\n";
+        }
+      }
+    }
+    for (Int_t ib = 0; ib < kNBachelorQaSpecs; ++ib) {
+      const BachelorQaSpec& spec = kBachelorQaSpecs[ib];
+      const std::string base(spec.channelBase);
+      const char* tags[] = {base.c_str(), channelSignal(base).c_str(), channelLeftSb(base).c_str(),
+                            channelRightSb(base).c_str(), 0};
+      for (Int_t it = 0; tags[it]; ++it) {
+        Int_t nPts = getCachedCfPointCount(cfCache, tags[it]);
+        std::cout << "  hCF_" << tags[it] << " (computed): nPoints=" << nPts;
+        if (nPts < 1) std::cout << "  [empty — check SE/ME or norm region]";
+        std::cout << "\n";
+      }
+      if (spec.rotChannel) {
+        Int_t nRot = getCachedCfPointCount(cfCache, spec.rotChannel);
+        std::cout << "  hCF_" << spec.rotChannel << " (computed): nPoints=" << nRot << "\n";
+      }
+    }
+    std::cout << Form("  CF cent slice (cent9 %d-%d, projected):\n", cfCent9Min, cfCent9Max);
+    for (Int_t ib = 0; ib < kNBachelorQaSpecs; ++ib) {
+      const BachelorQaSpec& spec = kBachelorQaSpecs[ib];
+      const std::string base(spec.channelBase);
+      const char* centCh[] = {channelSignal(base).c_str(), channelLeftSb(base).c_str(),
+                              channelRightSb(base).c_str(), spec.rotChannel, 0};
+      std::cout << "    " << base << ":\n";
+      for (Int_t ic = 0; centCh[ic]; ++ic) {
+        Int_t nPts = getCachedCfPointCount(cfCache, cfCentCacheKey(centCh[ic]).c_str());
+        std::cout << "      " << centCh[ic] << ": nPoints=" << nPts << "\n";
+      }
+    }
+    if (isHKaonTwoBodyEnabled()) {
+      std::cout << "  --- h-K two-body (phi-daughter kaon selection) ---\n";
+      for (Int_t ik = 0; kHKaonSpecies[ik]; ++ik) {
+        for (Int_t ib = 0; kHKaonBachelors[ib]; ++ib) {
+          const std::string ch = std::string(kHKaonSpecies[ik]) + "_" + kHKaonBachelors[ib];
+          std::cout << "    " << ch << ": SE=" << getHistEntries(fin, (std::string("hKstarSE_") + ch).c_str())
+                    << " ME=" << getHistEntries(fin, (std::string("hKstarME_") + ch).c_str())
+                    << " CF nPoints=" << getCachedCfPointCount(cfCache, ch.c_str()) << "\n";
+        }
+      }
+    }
+    if (isKuboTripletEnabled()) {
+      std::cout << "  --- Kubo triplet background ---\n";
+      const char* tripPrefixes[] = {"hKstarTripSEKp_", "hKstarTripSEKm_", "hKstarTripMix_", "hMKKtriplet_", 0};
+      for (Int_t ib = 0; kKuboBases[ib]; ++ib) {
+        std::cout << "    " << kKuboBases[ib] << ":";
+        for (Int_t ip = 0; tripPrefixes[ip]; ++ip) {
+          std::cout << " " << tripPrefixes[ip] << "="
+                    << getHistEntries(fin, (std::string(tripPrefixes[ip]) + kKuboBases[ib]).c_str());
+        }
+        std::cout << "\n";
+      }
+    }
+    printCfSliceConsoleSummary(cfCache);
+    std::cout << "=============================================================\n\n";
+  }
+
+  delete c1;
+  c1 = 0;
+  // Pad-owned drawables may be deleted with the canvas; drop pointers only.
+  centProjKeepAlive.clear();
+  for (std::map<std::string, TGraphErrors*>::iterator it = cfCache.begin(); it != cfCache.end(); ++it) {
+    it->second = 0;
+  }
+  cfCache.clear();
+  fin->Close();
+
+  std::cout << "Done. QA PDF: " << pdfName.Data() << std::endl;
+  if (method3AllKstarPdf.Length()) {
+    std::cout << "Done. Method3 all-k* fits PDF: " << method3AllKstarPdf.Data() << std::endl;
+  }
+  if (isCfSubWriteSidecar() && isMethod5Enabled()) {
+    TString sidecar = TString(outDir) + anaName + "_checkHistAnaFemtoPhi_CFsub";
+    if (jobid.Length()) sidecar += "_" + jobid;
+    sidecar += ".root";
+    std::cout << "Done. CFsub sidecar: " << sidecar.Data() << std::endl;
+  }
+}
