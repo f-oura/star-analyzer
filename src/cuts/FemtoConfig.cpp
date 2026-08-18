@@ -147,6 +147,10 @@ void FemtoConfig::SetDefaults() {
   he3MaxRapidityCm = 0.0;
 
   rotationEnabled = kFALSE;
+  fullyMixedEnabled = kFALSE;
+  fullyMixedSpeciesKey = "phi_mix";
+  fullyMixedParticleKey = "phi_fully_mixed";
+  fullyMixedMaxCandidates = 2000;
   rotationSpeciesKey = "phi_rot";
   rotationParticleKey = "phi_rotation";
   rotationN = 10;
@@ -198,6 +202,34 @@ void FemtoConfig::SetDefaults() {
   purityClampMin = 0.05;
   purityClampMax = 1.0;
   cfBkgMode = "me_mass";
+
+  cfSubtractionMode = "method5";
+  cfSubPurityMode = "fit_slice";
+  cfSubPurityFixed = 0.7;
+  cfSubSidebandCombine = "sumLR";
+  cfSubWriteSidecarRoot = kTRUE;
+  cfSubLowStatsRebinExtra = 1;
+
+  cfDirectPurityMode = "none";
+  purityDirectFitModel = "gaus_pol2";
+  purityDirectFitMassMin = 0.99;
+  purityDirectFitMassMax = 1.06;
+  purityDirectKstarBinWidth = 0.0;  // native *Kstar width unless set in YAML
+  method3BkgSubLowKstarMergeBins = 1;
+  method3BkgSubAlphaMassMin = 0.0;  // <=0 with max<=min => use left+right SB
+  method3BkgSubAlphaMassMax = 0.0;
+  cfDirectWriteSidecar = kTRUE;
+
+  enableHKaonTwoBody = kFALSE;
+  enableKuboTriplet = kFALSE;
+  enableKuboGenuine = kFALSE;
+  kuboStoreFullMass = kFALSE;
+
+  phiNearTrackQaEnabled = kFALSE;
+  phiNearTrackSignalChannel = "phi_proton_signal";
+  phiNearTrackMaxKstarLoose = 1.0;
+  phiNearTrackMaxKstarTight = 0.3;
+  phiNearTrackMassHyp = "pion";
 
   SpeciesDef proton;
   proton.key = "proton";
@@ -458,6 +490,14 @@ void FemtoConfig::ApplyYamlValues(const std::map<std::string, std::string>& valu
   if (values.find("rotationMinAngle") != values.end()) rotationMinAngle = YamlParser::ToDouble(values.at("rotationMinAngle"), rotationMinAngle);
   if (values.find("rotationMaxAngle") != values.end()) rotationMaxAngle = YamlParser::ToDouble(values.at("rotationMaxAngle"), rotationMaxAngle);
   if (values.find("rotationSeed") != values.end()) rotationSeed = YamlParser::ToInt(values.at("rotationSeed"), rotationSeed);
+  if (values.find("fullyMixedEnabled") != values.end()) {
+    fullyMixedEnabled = YamlParser::ToBool(values.at("fullyMixedEnabled"), fullyMixedEnabled);
+  }
+  if (values.find("fullyMixedSpeciesKey") != values.end()) fullyMixedSpeciesKey = values.at("fullyMixedSpeciesKey");
+  if (values.find("fullyMixedParticleKey") != values.end()) fullyMixedParticleKey = values.at("fullyMixedParticleKey");
+  if (values.find("fullyMixedMaxCandidates") != values.end()) {
+    fullyMixedMaxCandidates = YamlParser::ToInt(values.at("fullyMixedMaxCandidates"), fullyMixedMaxCandidates);
+  }
   if (values.find("cfRebinFactor") != values.end()) cfRebinFactor = YamlParser::ToInt(values.at("cfRebinFactor"), cfRebinFactor);
   if (values.find("cfCent9Min") != values.end()) cfCent9Min = YamlParser::ToInt(values.at("cfCent9Min"), cfCent9Min);
   if (values.find("cfCent9Max") != values.end()) cfCent9Max = YamlParser::ToInt(values.at("cfCent9Max"), cfCent9Max);
@@ -494,6 +534,78 @@ void FemtoConfig::ApplyYamlValues(const std::map<std::string, std::string>& valu
     purityClampMax = YamlParser::ToDouble(values.at("purityClampMax"), purityClampMax);
   }
   if (values.find("cfBkgMode") != values.end()) cfBkgMode = values.at("cfBkgMode");
+  if (values.find("cfSubtractionMode") != values.end()) cfSubtractionMode = values.at("cfSubtractionMode");
+  if (values.find("cfSubPurityMode") != values.end()) cfSubPurityMode = values.at("cfSubPurityMode");
+  if (values.find("cfSubPurityFixed") != values.end()) {
+    cfSubPurityFixed = YamlParser::ToDouble(values.at("cfSubPurityFixed"), cfSubPurityFixed);
+  }
+  if (values.find("cfSubSidebandCombine") != values.end()) {
+    cfSubSidebandCombine = values.at("cfSubSidebandCombine");
+  }
+  if (values.find("cfSubWriteSidecarRoot") != values.end()) {
+    cfSubWriteSidecarRoot = YamlParser::ToBool(values.at("cfSubWriteSidecarRoot"), cfSubWriteSidecarRoot);
+  }
+  if (values.find("cfSubLowStatsRebinExtra") != values.end()) {
+    cfSubLowStatsRebinExtra = YamlParser::ToInt(values.at("cfSubLowStatsRebinExtra"), cfSubLowStatsRebinExtra);
+  }
+  if (values.find("cfDirectPurityMode") != values.end()) cfDirectPurityMode = values.at("cfDirectPurityMode");
+  if (values.find("purityDirectFitModel") != values.end()) {
+    purityDirectFitModel = values.at("purityDirectFitModel");
+  }
+  if (values.find("purityDirectFitMassMin") != values.end()) {
+    purityDirectFitMassMin = YamlParser::ToDouble(values.at("purityDirectFitMassMin"), purityDirectFitMassMin);
+  }
+  if (values.find("purityDirectFitMassMax") != values.end()) {
+    purityDirectFitMassMax = YamlParser::ToDouble(values.at("purityDirectFitMassMax"), purityDirectFitMassMax);
+  }
+  if (values.find("purityDirectKstarBinWidth") != values.end()) {
+    purityDirectKstarBinWidth =
+        YamlParser::ToDouble(values.at("purityDirectKstarBinWidth"), purityDirectKstarBinWidth);
+  }
+  if (values.find("method3BkgSubLowKstarMergeBins") != values.end()) {
+    method3BkgSubLowKstarMergeBins =
+        YamlParser::ToInt(values.at("method3BkgSubLowKstarMergeBins"), method3BkgSubLowKstarMergeBins);
+  }
+  if (values.find("method3BkgSubAlphaMassMin") != values.end()) {
+    method3BkgSubAlphaMassMin =
+        YamlParser::ToDouble(values.at("method3BkgSubAlphaMassMin"), method3BkgSubAlphaMassMin);
+  }
+  if (values.find("method3BkgSubAlphaMassMax") != values.end()) {
+    method3BkgSubAlphaMassMax =
+        YamlParser::ToDouble(values.at("method3BkgSubAlphaMassMax"), method3BkgSubAlphaMassMax);
+  }
+  if (values.find("cfDirectWriteSidecar") != values.end()) {
+    cfDirectWriteSidecar = YamlParser::ToBool(values.at("cfDirectWriteSidecar"), cfDirectWriteSidecar);
+  }
+  if (values.find("enableHKaonTwoBody") != values.end()) {
+    enableHKaonTwoBody = YamlParser::ToBool(values.at("enableHKaonTwoBody"), enableHKaonTwoBody);
+  }
+  if (values.find("enableKuboTriplet") != values.end()) {
+    enableKuboTriplet = YamlParser::ToBool(values.at("enableKuboTriplet"), enableKuboTriplet);
+  }
+  if (values.find("enableKuboGenuine") != values.end()) {
+    enableKuboGenuine = YamlParser::ToBool(values.at("enableKuboGenuine"), enableKuboGenuine);
+  }
+  if (values.find("kuboStoreFullMass") != values.end()) {
+    kuboStoreFullMass = YamlParser::ToBool(values.at("kuboStoreFullMass"), kuboStoreFullMass);
+  }
+  if (values.find("phiNearTrackQaEnabled") != values.end()) {
+    phiNearTrackQaEnabled = YamlParser::ToBool(values.at("phiNearTrackQaEnabled"), phiNearTrackQaEnabled);
+  }
+  if (values.find("phiNearTrackSignalChannel") != values.end()) {
+    phiNearTrackSignalChannel = values.at("phiNearTrackSignalChannel");
+  }
+  if (values.find("phiNearTrackMaxKstarLoose") != values.end()) {
+    phiNearTrackMaxKstarLoose =
+        YamlParser::ToDouble(values.at("phiNearTrackMaxKstarLoose"), phiNearTrackMaxKstarLoose);
+  }
+  if (values.find("phiNearTrackMaxKstarTight") != values.end()) {
+    phiNearTrackMaxKstarTight =
+        YamlParser::ToDouble(values.at("phiNearTrackMaxKstarTight"), phiNearTrackMaxKstarTight);
+  }
+  if (values.find("phiNearTrackMassHyp") != values.end()) {
+    phiNearTrackMassHyp = values.at("phiNearTrackMassHyp");
+  }
   if (values.find("cfCentSlicesQaPdfInclude") != values.end()) {
     cfCentSlicesQaPdfInclude = SplitComma(values.at("cfCentSlicesQaPdfInclude"));
   }
@@ -647,6 +759,16 @@ Bool_t FemtoConfig::Validate() const {
     std::cerr << "ERROR: rotationEnabled but species '" << rotationSpeciesKey << "' not defined" << std::endl;
     ok = kFALSE;
   }
+  if (fullyMixedEnabled && species.find(fullyMixedSpeciesKey) == species.end()) {
+    std::cerr << "ERROR: fullyMixedEnabled but species '" << fullyMixedSpeciesKey << "' not defined" << std::endl;
+    ok = kFALSE;
+  }
+  if (fullyMixedEnabled &&
+      (species.find("phikaon_plus") == species.end() || species.find("phikaon_minus") == species.end())) {
+    std::cerr << "ERROR: FemtoConfig fullyMixedEnabled requires species phikaon_plus and phikaon_minus"
+              << std::endl;
+    ok = kFALSE;
+  }
   if (cfRebinFactor < 1) {
     std::cerr << "ERROR: FemtoConfig cfRebinFactor must be >= 1 (got " << cfRebinFactor << ")" << std::endl;
     ok = kFALSE;
@@ -687,6 +809,80 @@ Bool_t FemtoConfig::Validate() const {
   if (purityClampMin <= 0.0 || purityClampMax > 1.0 || purityClampMin >= purityClampMax) {
     std::cerr << "ERROR: FemtoConfig purityClampMin/Max invalid (expect 0 < min < max <= 1)" << std::endl;
     ok = kFALSE;
+  }
+  if (cfSubtractionMode != "none" && cfSubtractionMode != "method5") {
+    std::cerr << "ERROR: FemtoConfig cfSubtractionMode must be none|method5 (got " << cfSubtractionMode << ")"
+              << std::endl;
+    ok = kFALSE;
+  }
+  if (cfSubPurityMode != "fixed" && cfSubPurityMode != "fit_slice") {
+    std::cerr << "ERROR: FemtoConfig cfSubPurityMode must be fixed|fit_slice (got " << cfSubPurityMode << ")"
+              << std::endl;
+    ok = kFALSE;
+  }
+  if (cfSubPurityFixed <= 0.0 || cfSubPurityFixed > 1.0) {
+    std::cerr << "ERROR: FemtoConfig cfSubPurityFixed must be in (0, 1]" << std::endl;
+    ok = kFALSE;
+  }
+  if (cfSubSidebandCombine != "sumLR" && cfSubSidebandCombine != "avgCF_LR") {
+    std::cerr << "ERROR: FemtoConfig cfSubSidebandCombine must be sumLR|avgCF_LR (got " << cfSubSidebandCombine
+              << ")" << std::endl;
+    ok = kFALSE;
+  }
+  if (cfSubLowStatsRebinExtra < 1) {
+    std::cerr << "ERROR: FemtoConfig cfSubLowStatsRebinExtra must be >= 1" << std::endl;
+    ok = kFALSE;
+  }
+  if (cfDirectPurityMode != "none" && cfDirectPurityMode != "method3") {
+    std::cerr << "ERROR: FemtoConfig cfDirectPurityMode must be none|method3 (got " << cfDirectPurityMode << ")"
+              << std::endl;
+    ok = kFALSE;
+  }
+  if (purityDirectFitModel != "gaus_pol2" && purityDirectFitModel != "gaus_const") {
+    std::cerr << "ERROR: FemtoConfig purityDirectFitModel must be gaus_pol2|gaus_const (got "
+              << purityDirectFitModel << ")" << std::endl;
+    ok = kFALSE;
+  }
+  if (purityDirectFitMassMin <= 0.0 || purityDirectFitMassMax <= purityDirectFitMassMin) {
+    std::cerr << "ERROR: FemtoConfig purityDirectFitMassMin/Max invalid" << std::endl;
+    ok = kFALSE;
+  }
+  if (purityDirectKstarBinWidth < 0.0) {
+    std::cerr << "ERROR: FemtoConfig purityDirectKstarBinWidth must be >= 0 (got " << purityDirectKstarBinWidth
+              << ")" << std::endl;
+    ok = kFALSE;
+  }
+  if (method3BkgSubLowKstarMergeBins < 1) {
+    std::cerr << "ERROR: FemtoConfig method3BkgSubLowKstarMergeBins must be >= 1 (got "
+              << method3BkgSubLowKstarMergeBins << ")" << std::endl;
+    ok = kFALSE;
+  }
+  if (method3BkgSubAlphaMassMax > method3BkgSubAlphaMassMin && method3BkgSubAlphaMassMin < 0.0) {
+    std::cerr << "ERROR: FemtoConfig method3BkgSubAlphaMassMin must be >= 0 when max>min" << std::endl;
+    ok = kFALSE;
+  }
+  if (enableKuboTriplet &&
+      (species.find("phikaon_plus") == species.end() || species.find("phikaon_minus") == species.end())) {
+    std::cerr << "ERROR: FemtoConfig enableKuboTriplet requires species phikaon_plus and phikaon_minus"
+              << std::endl;
+    ok = kFALSE;
+  }
+  if (phiNearTrackQaEnabled) {
+    if (phiNearTrackSignalChannel.empty() || FindChannel(phiNearTrackSignalChannel) == 0) {
+      std::cerr << "ERROR: FemtoConfig phiNearTrackQaEnabled but signal channel '" << phiNearTrackSignalChannel
+                << "' not found" << std::endl;
+      ok = kFALSE;
+    }
+    if (phiNearTrackMaxKstarTight <= 0.0 || phiNearTrackMaxKstarLoose <= phiNearTrackMaxKstarTight) {
+      std::cerr << "ERROR: FemtoConfig phiNearTrackMaxKstarTight/Loose invalid (need 0 < tight < loose)"
+                << std::endl;
+      ok = kFALSE;
+    }
+    if (phiNearTrackMassHyp != "pion" && phiNearTrackMassHyp != "proton" && phiNearTrackMassHyp != "kaon") {
+      std::cerr << "ERROR: FemtoConfig phiNearTrackMassHyp must be pion|proton|kaon (got " << phiNearTrackMassHyp
+                << ")" << std::endl;
+      ok = kFALSE;
+    }
   }
   return ok;
 }

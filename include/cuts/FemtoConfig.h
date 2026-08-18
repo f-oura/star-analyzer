@@ -147,6 +147,14 @@ class FemtoConfig {
   Double_t rotationMaxAngle;
   Int_t rotationSeed;
 
+  // Fully-mixed KK phi template (phi_mix species): K+ and K- from distinct pool events.
+  // Used as Method3 mass-background alternative to ROT (SE/ME wide TH3 via channels).
+  // Standard MIX KK (current K x buffer opposite K) for Method3 mass BG template (species phi_mix).
+  Bool_t fullyMixedEnabled;
+  std::string fullyMixedSpeciesKey;
+  std::string fullyMixedParticleKey;
+  Int_t fullyMixedMaxCandidates; // cap per event; <=0 = uncapped (not recommended)
+
   // checkHist CF: merge this many adjacent k* bins after merge (1 = no rebin).
   Int_t cfRebinFactor;
 
@@ -184,6 +192,42 @@ class FemtoConfig {
   Double_t purityClampMin;
   Double_t purityClampMax;
   std::string cfBkgMode;  // me_mass
+
+  // method 5 CF-subtraction (checkHist): CF_CFsub = [CF_sig - (1-P) CF_SB] / P
+  // with CF_SB from sideband SE/ME (not ME-mass C_bkg). Default mode method5.
+  std::string cfSubtractionMode;      // none | method5
+  std::string cfSubPurityMode;        // fixed | fit_slice
+  Double_t cfSubPurityFixed;          // used when cfSubPurityMode=fixed
+  std::string cfSubSidebandCombine;   // sumLR | avgCF_LR (avgCF_LR reserved)
+  Bool_t cfSubWriteSidecarRoot;       // write CFsub graphs to sidecar ROOT
+  Int_t cfSubLowStatsRebinExtra;      // extra rebin for t/he3/he4 slices (1 = none)
+
+  // Method 3 direct purity (checkHist): CF_direct = N_sig_SE / N_sig_ME from
+  // per-k* gaus+pol2 fits on wide M_KK TH3. Distinct from Topic 3 C_genuine and CF-Sub.
+  std::string cfDirectPurityMode;     // none | method3
+  std::string purityDirectFitModel;   // gaus_pol2 | gaus_const
+  Double_t purityDirectFitMassMin;
+  Double_t purityDirectFitMassMax;
+  Double_t purityDirectKstarBinWidth; // Method3 k* rebin target [GeV/c]; <=0 = native (10 MeV)
+  Int_t method3BkgSubLowKstarMergeBins; // merge first N Method3 bkg-sub k* bins (1 = disabled)
+  // Method3 S=F-αB: if alphaMassMax > alphaMassMin, α from this single M_KK window only
+  // (else fall back to leftSB+rightSB channel windows).
+  Double_t method3BkgSubAlphaMassMin;
+  Double_t method3BkgSubAlphaMassMax;
+  Bool_t cfDirectWriteSidecar;        // write Method3 graphs to sidecar ROOT
+
+  // h-K correlations extension (off by default; existing paths unchanged when false).
+  Bool_t enableHKaonTwoBody;  // fill two-body h-K+/- pairs (needs phikaon_plus/minus species + channels)
+  Bool_t enableKuboTriplet;   // fill Kubo-rule 3-body triplet background histograms (p, d)
+  Bool_t enableKuboGenuine;   // macro-side: also produce Kubo-subtracted genuine CF (p, d)
+  Bool_t kuboStoreFullMass;   // also fill full-M_KK TH3 Kubo topologies (no early signal-window cut)
+
+  // PID QA: all quality tracks near signal-window phi in PRF (k*). Not used in CF.
+  Bool_t phiNearTrackQaEnabled;
+  std::string phiNearTrackSignalChannel;  // mass window from this channel's signalMin/Max
+  Double_t phiNearTrackMaxKstarLoose;     // e.g. 1.0 GeV/c
+  Double_t phiNearTrackMaxKstarTight;     // e.g. 0.3 GeV/c (subset of loose)
+  std::string phiNearTrackMassHyp;        // pion | proton | kaon (track 4-vector for k*)
 
   Bool_t Validate() const;
   const CfCentSlice* FindCfCentSlice(const std::string& id) const;

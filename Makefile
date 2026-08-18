@@ -107,7 +107,7 @@ STAR_ANA_CONFIG_SRCS := src/ConfigManager.cpp src/YamlParser.cpp src/HistManager
   src/cuts/EventCutConfig.cpp src/cuts/TrackCutConfig.cpp src/cuts/PIDCutConfig.cpp \
   src/cuts/V0CutConfig.cpp src/cuts/PhiCutConfig.cpp src/cuts/LambdaCutConfig.cpp \
   src/cuts/Lambda1520CutConfig.cpp src/cuts/Sigma1385CutConfig.cpp src/cuts/NuclearIdCutConfig.cpp src/cuts/MixingConfig.cpp \
-  src/cuts/CentralityCutConfig.cpp src/cuts/FemtoConfig.cpp
+  src/cuts/CentralityCutConfig.cpp src/cuts/FemtoConfig.cpp src/cuts/PhiMesicNucleusConfig.cpp
 STAR_ANA_CONFIG_OBJS := $(addprefix $(LIB_DIR)/,$(notdir $(STAR_ANA_CONFIG_SRCS:.cpp=.o)))
 CXXFLAGS_CONFIG := $(ARCH_FLAGS) -O2 -Wall -fPIC -std=c++11 $(ROOTCFLAGS) -Iinclude -I$(YAML_CPP_DIR)/include
 LDFLAGS_CONFIG := $(ARCH_FLAGS) $(ROOTLDFLAGS) -shared -Wl,--whole-archive -L$(YAML_CPP_BUILD) -lyaml-cpp -Wl,--no-whole-archive
@@ -176,6 +176,8 @@ $(LIB_DIR)/CentralityCutConfig.o: src/cuts/CentralityCutConfig.cpp include/cuts/
 	$(CXX) $(CXXFLAGS_CONFIG) -c src/cuts/CentralityCutConfig.cpp -o $@
 $(LIB_DIR)/FemtoConfig.o: src/cuts/FemtoConfig.cpp include/cuts/FemtoConfig.h
 	$(CXX) $(CXXFLAGS_CONFIG) -c src/cuts/FemtoConfig.cpp -o $@
+$(LIB_DIR)/PhiMesicNucleusConfig.o: src/cuts/PhiMesicNucleusConfig.cpp include/cuts/PhiMesicNucleusConfig.h
+	$(CXX) $(CXXFLAGS_CONFIG) -c src/cuts/PhiMesicNucleusConfig.cpp -o $@
 
 # libStRefMultCorr.so (no rootcint dict; used from compiled Makers only)
 $(LIB_DIR)/$(LIB_RMC_NAME): $(LIB_DIR) $(RMC_OBJS)

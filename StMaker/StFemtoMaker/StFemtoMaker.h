@@ -77,6 +77,16 @@ class StFemtoMaker : public StMaker {
     Float_t nSigmaHe3;
   };
 
+  // Quality-track buffer for phi-near PID QA (dE/dx, m^{2}*q vs p).
+  struct NearTrackPidQa {
+    Float_t px, py, pz;
+    Float_t dedx;
+    Float_t mass2;
+    Short_t charge;
+    Bool_t tofMatch;
+    Int_t trackIndex;
+  };
+
   struct FemtoMixingEvent {
     FemtoCandidateStore candidates;
   };
@@ -98,6 +108,7 @@ class StFemtoMaker : public StMaker {
   std::vector<FemtoCandidate> m_phiQaLoose;
   std::vector<FemtoCandidate> m_phiQaPreMassLoose;
   std::vector<FemtoCandidate> m_phiQaPreMassTofStrict;
+  std::vector<NearTrackPidQa> m_nearTrackPidQa;
   std::map<Int_t, std::deque<FemtoMixingEvent> > m_mixingPool;
 
   Bool_t PassEventCuts(Float_t vz, Float_t vr, Int_t refMult, Float_t vzVpd);
@@ -156,14 +167,23 @@ class StFemtoMaker : public StMaker {
                                const std::vector<He4TrackState>& he4Tracks,
                                const std::vector<DeuteronTrackState>& deuteronTracks,
                                const std::vector<TritonTrackState>& tritonTracks,
-                               const std::vector<He3TrackState>& he3Tracks, Int_t eventIndex);
+                               const std::vector<He3TrackState>& he3Tracks,
+                               const std::vector<TrackState>& phiKaonsPlus,
+                               const std::vector<TrackState>& phiKaonsMinus, Int_t eventIndex);
   void BuildResonanceCandidates(const std::string& speciesKey, const std::string& particleKey,
                                 const std::vector<TrackState>& kaonsPlus, const std::vector<TrackState>& kaonsMinus,
                                 Int_t eventIndex);
   void BuildRotatedPhiCandidates(const std::string& speciesKey, const std::vector<TrackState>& kaonsPlus,
                                  const std::vector<TrackState>& kaonsMinus, Int_t eventIndex);
+  // Standard MIX KK (current K x buffer opposite K) -> species phi_mix (Method3 MIX mass template).
+  // Matches STAR spectra-style event mixing (e.g. psn0585 makeMixedPairs), not bufferxbuffer.
+  void BuildFullyMixedPhiCandidates(const std::string& speciesKey, const std::vector<TrackState>& kaonsPlus,
+                                    const std::vector<TrackState>& kaonsMinus, Float_t vz, Int_t cent9, Double_t psi2,
+                                    Int_t eventIndex);
   FemtoCandidate MakeProtonCandidate(const TrackState& trk, Int_t eventIndex, const std::string& speciesKey) const;
   FemtoCandidate MakeKaonMinusCandidate(const TrackState& trk, Int_t eventIndex, const std::string& speciesKey) const;
+  FemtoCandidate MakePhiDaughterKaonCandidate(const TrackState& trk, Int_t eventIndex,
+                                              const std::string& speciesKey) const;
   FemtoCandidate MakeHe4Candidate(const He4TrackState& trk, Int_t eventIndex, const std::string& speciesKey) const;
   FemtoCandidate MakeDeuteronCandidate(const DeuteronTrackState& trk, Int_t eventIndex,
                                        const std::string& speciesKey) const;
@@ -183,10 +203,15 @@ class StFemtoMaker : public StMaker {
   std::string PhiPairMomAngleHistKey(const std::string& channel, Bool_t vsMkk, Bool_t tofStrict) const;
   std::string PhiPairMomAngleHistKeyWithSuffix(const std::string& channel, Bool_t vsMkk, const std::string& suffix) const;
   void FillPhiBachelorPairAngleQa();
+  void FillPhiNearTrackPidQa();
 
   Int_t GetMixingBin(Float_t vz, Int_t cent9, Double_t psi2) const;
   void FillSameEventPairs(const FemtoConfig::ChannelDef& ch);
   void FillMixedEventPairs(const FemtoConfig::ChannelDef& ch, Float_t vz, Int_t cent9, Double_t psi2);
+  // Kubo-rule 3-body background: h + SE-K(one charge) + ME-K(other charge), plus a fully-mixed
+  // reference; k* is k*(h, KK) with M_KK inside the phi_<h>_signal mass window. Gated by enableKuboTriplet.
+  void FillKuboTripletBackground(const std::string& hadronSpecies, const std::string& baseName, Float_t vz,
+                                 Int_t cent9, Double_t psi2);
   void StoreEventForMixing(Float_t vz, Int_t cent9, Double_t psi2);
   void FillCandidateQA();
   void FillCentralityEventQA(Int_t cent9, Int_t rawMult, Double_t refMultCorr, Int_t nTracks, Int_t nBTOFMatch,

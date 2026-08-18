@@ -38,6 +38,7 @@
 namespace {
 const Double_t kProtonMass = 0.938272;
 const Double_t kKaonMass = 0.493677;
+const Double_t kPionMass = 0.139570;
 const Double_t kPhiMass = 1.019461;
 
 Bool_t ComputePhiBetaGamma(Bool_t tofPlus, Float_t betaPlus, Bool_t tofMinus, Float_t betaMinus, Float_t& betaGamma) {
@@ -131,6 +132,7 @@ void StFemtoMaker::Clear(Option_t* opt) {
   m_phiQaLoose.clear();
   m_phiQaPreMassLoose.clear();
   m_phiQaPreMassTofStrict.clear();
+  m_nearTrackPidQa.clear();
 }
 
 Int_t StFemtoMaker::Make() {
@@ -146,6 +148,7 @@ Int_t StFemtoMaker::Make() {
   m_phiQaLoose.clear();
   m_phiQaPreMassLoose.clear();
   m_phiQaPreMassTofStrict.clear();
+  m_nearTrackPidQa.clear();
 
   TVector3 pVtx = event->primaryVertex();
   Float_t vzVpd = event->vzVpd();
@@ -265,7 +268,13 @@ Int_t StFemtoMaker::Make() {
   const Bool_t needHe3 = (femtoCfgSpecies.FindSpecies("he3") != nullptr);
   const Bool_t needPhi = (femtoCfgSpecies.FindSpecies("phi") != nullptr) ||
                          (femtoCfgSpecies.FindSpecies("phi_rot") != nullptr) ||
-                         femtoCfgSpecies.rotationEnabled;
+                         (femtoCfgSpecies.FindSpecies(femtoCfgSpecies.fullyMixedSpeciesKey) != nullptr) ||
+                         femtoCfgSpecies.rotationEnabled || femtoCfgSpecies.fullyMixedEnabled;
+  // phi-daughter kaon track species (h-K correlations extension) reuse the exact kaonsPlus/kaonsMinus
+  // vectors built with the phi-daughter selection, so the K collection must run whenever they exist.
+  const Bool_t needPhiDaughterKaon = (femtoCfgSpecies.FindSpecies("phikaon_plus") != nullptr) ||
+                                     (femtoCfgSpecies.FindSpecies("phikaon_minus") != nullptr);
+  const Bool_t needKaonCollection = needPhi || needPhiDaughterKaon;
   const NuclearIdCutConfig& nucIdCfg = ConfigManager::GetInstance().GetNuclearIdCuts();
 
   Double_t Qx = 0.0, Qy = 0.0;
@@ -297,6 +306,26 @@ Int_t StFemtoMaker::Make() {
     Float_t eta = pMom.PseudoRapidity();
     Float_t phi = pMom.Phi();
     Int_t btofIndex = trk->bTofPidTraitsIndex();
+
+    // Buffer all quality tracks for phi-near PID QA (filled after phi candidates exist).
+    if (m_histManager && femtoCfgSpecies.phiNearTrackQaEnabled &&
+        (Int_t)m_nearTrackPidQa.size() < kMaxTracks) {
+      NearTrackPidQa nt;
+      nt.px = (Float_t)pMom.X();
+      nt.py = (Float_t)pMom.Y();
+      nt.pz = (Float_t)pMom.Z();
+      nt.dedx = (Float_t)trk->dEdx();
+      nt.charge = trk->charge();
+      nt.trackIndex = itrk;
+      nt.tofMatch = kFALSE;
+      nt.mass2 = -999.0f;
+      TrackState tmp;
+      BuildTrackState(tmp, trk, event, pVtx, itrk);
+      FillTofInfo(tmp, trk, pMom, btofIndex);
+      nt.tofMatch = tmp.tofMatch;
+      nt.mass2 = tmp.mass2;
+      m_nearTrackPidQa.push_back(nt);
+    }
 
     if (m_histManager) {
       m_histManager->Fill("hPt", pt);
@@ -352,7 +381,7 @@ Int_t StFemtoMaker::Make() {
       Qy += TMath::Sin(2.0 * phi);
     }
 
-    if (needPhi && PassKaonCuts(trk, pVtx)) {
+    if (needKaonCollection && PassKaonCuts(trk, pVtx)) {
       TrackState kTrack;
       BuildTrackState(kTrack, trk, event, pVtx, itrk);
       FillTofInfo(kTrack, trk, pMom, btofIndex);
@@ -556,10 +585,12 @@ Int_t StFemtoMaker::Make() {
     const FemtoConfig::SpeciesDef& sp = it->second;
     if (sp.builderType == "track") {
       BuildTrackPidCandidates(sp.key, sp.particleKey, protons, kaonMinusTracks, he4Tracks, deuteronTracks,
-                              tritonTracks, he3Tracks, mEventCounter);
+                              tritonTracks, he3Tracks, kaonsPlus, kaonsMinus, mEventCounter);
     } else if (sp.builderType == "resonance") {
       if (sp.particleKey == femtoCfg.rotationParticleKey) {
         BuildRotatedPhiCandidates(sp.key, kaonsPlus, kaonsMinus, mEventCounter);
+      } else if (sp.particleKey == femtoCfg.fullyMixedParticleKey) {
+        BuildFullyMixedPhiCandidates(sp.key, kaonsPlus, kaonsMinus, vz, m_cent9, m_psi2, mEventCounter);
       } else {
         BuildResonanceCandidates(sp.key, sp.particleKey, kaonsPlus, kaonsMinus, mEventCounter);
       }
@@ -568,12 +599,20 @@ Int_t StFemtoMaker::Make() {
 
   FillCandidateQA();
   FillPhiBachelorPairAngleQa();
+  FillPhiNearTrackPidQa();
 
   for (size_t ic = 0; ic < femtoCfg.channels.size(); ic++) {
     const FemtoConfig::ChannelDef& ch = femtoCfg.channels[ic];
     if (!ch.enabled) continue;
     FillSameEventPairs(ch);
     if (ch.doMixing) FillMixedEventPairs(ch, vz, m_cent9, m_psi2);
+  }
+
+  // Kubo-rule 3-body combinatorial background (h-phi via h-(KK)); uses the mixing pool BEFORE the
+  // current event is stored, exactly like the mixed-event pairs above.
+  if (femtoCfg.enableKuboTriplet) {
+    FillKuboTripletBackground("proton", "phi_proton", vz, m_cent9, m_psi2);
+    FillKuboTripletBackground("deuteron", "phi_deuteron", vz, m_cent9, m_psi2);
   }
 
   StoreEventForMixing(vz, m_cent9, m_psi2);
@@ -1252,6 +1291,26 @@ FemtoCandidate StFemtoMaker::MakeKaonMinusCandidate(const TrackState& trk, Int_t
   return cand;
 }
 
+// Charge-generic kaon candidate built from a phi-daughter TrackState (kaon mass hypothesis). The
+// selection is whatever produced kaonsPlus/kaonsMinus (phi-daughter cuts + IsKaon), by construction.
+FemtoCandidate StFemtoMaker::MakePhiDaughterKaonCandidate(const TrackState& trk, Int_t eventIndex,
+                                                          const std::string& speciesKey) const {
+  FemtoCandidate cand;
+  cand.eventIndex = eventIndex;
+  cand.source = kFemtoCandTrack;
+  cand.speciesKey = speciesKey;
+  cand.charge = trk.charge;
+  TVector3 p = TrackMomentum(trk);
+  cand.SetP4(KaonP4(p));
+  cand.trk.trackIndex = trk.trackIndex;
+  cand.trk.nSigmaKaon = trk.nSigmaKaon;
+  cand.trk.nSigmaProton = trk.nSigmaProton;
+  cand.trk.mass2 = trk.mass2;
+  cand.trk.dca = trk.DCA;
+  cand.trk.nHitsFit = trk.nHitsFit;
+  return cand;
+}
+
 FemtoCandidate StFemtoMaker::MakeHe4Candidate(const He4TrackState& h4, Int_t eventIndex,
                                               const std::string& speciesKey) const {
   FemtoCandidate cand;
@@ -1359,8 +1418,24 @@ void StFemtoMaker::BuildTrackPidCandidates(const std::string& speciesKey, const 
                                            const std::vector<He4TrackState>& he4Tracks,
                                            const std::vector<DeuteronTrackState>& deuteronTracks,
                                            const std::vector<TritonTrackState>& tritonTracks,
-                                           const std::vector<He3TrackState>& he3Tracks, Int_t eventIndex) {
+                                           const std::vector<He3TrackState>& he3Tracks,
+                                           const std::vector<TrackState>& phiKaonsPlus,
+                                           const std::vector<TrackState>& phiKaonsMinus, Int_t eventIndex) {
   std::vector<FemtoCandidate>& out = m_eventCandidates[speciesKey];
+  // phi-daughter kaon species: identical selection to the phi-daughter kaons (kaonsPlus/kaonsMinus),
+  // NOT the anaFemtoKaon bachelor kaon (kaon_minus) path.
+  if (particleKey == "phi_kaon_plus") {
+    for (size_t i = 0; i < phiKaonsPlus.size(); i++) {
+      out.push_back(MakePhiDaughterKaonCandidate(phiKaonsPlus[i], eventIndex, speciesKey));
+    }
+    return;
+  }
+  if (particleKey == "phi_kaon_minus") {
+    for (size_t i = 0; i < phiKaonsMinus.size(); i++) {
+      out.push_back(MakePhiDaughterKaonCandidate(phiKaonsMinus[i], eventIndex, speciesKey));
+    }
+    return;
+  }
   if (particleKey == "proton") {
     for (size_t i = 0; i < protonTracks.size(); i++) {
       out.push_back(MakeProtonCandidate(protonTracks[i], eventIndex, speciesKey));
@@ -1573,6 +1648,102 @@ void StFemtoMaker::BuildRotatedPhiCandidates(const std::string& speciesKey, cons
   if (m_histManager) m_histManager->Fill("hPhiRot_NCand", (Double_t)nRotCand);
 }
 
+void StFemtoMaker::BuildFullyMixedPhiCandidates(const std::string& speciesKey,
+                                                const std::vector<TrackState>& kaonsPlus,
+                                                const std::vector<TrackState>& kaonsMinus, Float_t vz, Int_t cent9,
+                                                Double_t psi2, Int_t eventIndex) {
+  const FemtoConfig& fc = ConfigManager::GetInstance().GetFemtoConfig();
+  if (!fc.fullyMixedEnabled) return;
+  if (kaonsPlus.empty() && kaonsMinus.empty()) return;
+
+  PhiCutConfig& phiCfg = ConfigManager::GetInstance().GetPhiCuts();
+  std::vector<FemtoCandidate>& out = m_eventCandidates[speciesKey];
+  out.clear();
+
+  // Pool is read before StoreEventForMixing: standard MIX = current x buffer (psn0585-style).
+  const Int_t mixBin = GetMixingBin(vz, cent9, psi2);
+  std::map<Int_t, std::deque<FemtoMixingEvent> >::const_iterator poolIt = m_mixingPool.find(mixBin);
+  if (poolIt == m_mixingPool.end() || poolIt->second.empty()) return;
+  const std::deque<FemtoMixingEvent>& pool = poolIt->second;
+
+  const Double_t mK = StPhiKKReconstruction::KaonMass();
+  Int_t nCand = 0;
+  const Int_t maxCand = fc.fullyMixedMaxCandidates;
+
+  auto tryPushPair = [&](const TLorentzVector& pKp4, const TLorentzVector& pKm4, Int_t dau1Idx, Int_t dau2Idx) {
+    if (maxCand > 0 && nCand >= maxCand) return;
+    TLorentzVector pKK = pKp4 + pKm4;
+    const Double_t invMass = pKK.M();
+    if (invMass <= 0.0) return;
+
+    TVector3 pPlus = pKp4.Vect();
+    TVector3 pMinus = pKm4.Vect();
+    const Double_t openingAngle = pPlus.Angle(pMinus);
+    TVector3 phiMom = pKK.Vect();
+    const Double_t yLab = CalculatePairRapidity(invMass, phiMom);
+    const Double_t pairRapidity = ApplyRapidityFrame(yLab);
+    if (openingAngle < phiCfg.minOpeningAngle || openingAngle > phiCfg.maxOpeningAngle) return;
+    if (pairRapidity < phiCfg.minPairRapidity || pairRapidity > phiCfg.maxPairRapidity) return;
+
+    FemtoCandidate cand;
+    cand.eventIndex = eventIndex;
+    cand.source = kFemtoCandResonance;
+    cand.speciesKey = speciesKey;
+    cand.charge = 0;
+    const Double_t E = TMath::Sqrt(invMass * invMass + phiMom.Mag2());
+    cand.SetP4(TLorentzVector(phiMom.X(), phiMom.Y(), phiMom.Z(), E));
+    cand.y = (Float_t)pairRapidity;
+    cand.reso.invMass = (Float_t)invMass;
+    cand.reso.dcaDaughters = -1.0f;  // cross-event: no common DCA
+    cand.reso.dau1Index = dau1Idx;
+    cand.reso.dau2Index = dau2Idx;
+    cand.reso.betaGamma = -1.0f;
+    out.push_back(cand);
+    ++nCand;
+    if (m_histManager && m_histManager->Get("hPhiMix_MKK")) {
+      m_histManager->Fill("hPhiMix_MKK", invMass);
+    }
+  };
+
+  for (size_t ie = 0; ie < pool.size(); ++ie) {
+    if (maxCand > 0 && nCand >= maxCand) break;
+
+    // current K+ x buffer K-
+    FemtoCandidateStore::const_iterator pKm = pool[ie].candidates.find("phikaon_minus");
+    if (!kaonsPlus.empty() && pKm != pool[ie].candidates.end() && !pKm->second.empty()) {
+      const std::vector<FemtoCandidate>& poolKm = pKm->second;
+      for (size_t ip = 0; ip < kaonsPlus.size(); ++ip) {
+        if (maxCand > 0 && nCand >= maxCand) break;
+        TVector3 pPlus = TrackMomentum(kaonsPlus[ip]);
+        TLorentzVector pKp4(pPlus.X(), pPlus.Y(), pPlus.Z(), TMath::Sqrt(mK * mK + pPlus.Mag2()));
+        for (size_t im = 0; im < poolKm.size(); ++im) {
+          if (maxCand > 0 && nCand >= maxCand) break;
+          tryPushPair(pKp4, CandidateP4(poolKm[im]), kaonsPlus[ip].trackIndex, poolKm[im].trk.trackIndex);
+        }
+      }
+    }
+
+    // current K- x buffer K+
+    FemtoCandidateStore::const_iterator pKp = pool[ie].candidates.find("phikaon_plus");
+    if (!kaonsMinus.empty() && pKp != pool[ie].candidates.end() && !pKp->second.empty()) {
+      const std::vector<FemtoCandidate>& poolKp = pKp->second;
+      for (size_t im = 0; im < kaonsMinus.size(); ++im) {
+        if (maxCand > 0 && nCand >= maxCand) break;
+        TVector3 pMinus = TrackMomentum(kaonsMinus[im]);
+        TLorentzVector pKm4(pMinus.X(), pMinus.Y(), pMinus.Z(), TMath::Sqrt(mK * mK + pMinus.Mag2()));
+        for (size_t ip = 0; ip < poolKp.size(); ++ip) {
+          if (maxCand > 0 && nCand >= maxCand) break;
+          tryPushPair(CandidateP4(poolKp[ip]), pKm4, poolKp[ip].trk.trackIndex, kaonsMinus[im].trackIndex);
+        }
+      }
+    }
+  }
+
+  if (m_histManager && m_histManager->Get("hPhiMix_NCand")) {
+    m_histManager->Fill("hPhiMix_NCand", (Double_t)nCand);
+  }
+}
+
 void StFemtoMaker::FillCentralityEventQA(Int_t cent9, Int_t rawMult, Double_t refMultCorr, Int_t nTracks,
                                          Int_t nBTOFMatch, Int_t nKaonPlus, Int_t nKaonMinus, Int_t nPhiCandidates,
                                          Int_t nProtons, Int_t nHe4, Int_t nDeuteron, Int_t nTriton, Int_t nHe3) {
@@ -1626,14 +1797,40 @@ Double_t StFemtoMaker::ComputeKStar(const TLorentzVector& pA, const TLorentzVect
   return 0.5 * q.Vect().Mag();
 }
 
-Bool_t StFemtoMaker::TracksOverlap(const FemtoCandidate& phiCand, const FemtoCandidate& trkCand) const {
-  if (phiCand.source != kFemtoCandResonance) return kFALSE;
-  Int_t idx = trkCand.trk.trackIndex;
-  return (idx == phiCand.reso.dau1Index || idx == phiCand.reso.dau2Index);
+Bool_t StFemtoMaker::TracksOverlap(const FemtoCandidate& a, const FemtoCandidate& b) const {
+  // Resonance-vs-track: reject if the bare track is one of the resonance daughters (original behavior).
+  if (a.source == kFemtoCandResonance) {
+    Int_t idx = b.trk.trackIndex;
+    return (idx == a.reso.dau1Index || idx == a.reso.dau2Index);
+  }
+  if (b.source == kFemtoCandResonance) {
+    Int_t idx = a.trk.trackIndex;
+    return (idx == b.reso.dau1Index || idx == b.reso.dau2Index);
+  }
+  // Track-vs-track (e.g. h-K two-body): reject only the identical physical track, i.e. same event AND
+  // same track index (a track passing two PID hypotheses paired with itself). Cross-event mixed pairs
+  // never share an event index, so they are unaffected.
+  return (a.trk.trackIndex >= 0 && a.trk.trackIndex == b.trk.trackIndex && a.eventIndex == b.eventIndex);
 }
 
 std::string StFemtoMaker::HistName(const std::string& prefix, const std::string& channelName) const {
   return prefix + "_" + channelName;
+}
+
+// Method 3 / ROT / MIX full-mass TH3 suffixes:
+//   phi_proton_signal -> phi_proton_wide
+//   phi_rot_proton    -> phi_rot_proton_wide
+//   phi_mix_proton    -> phi_mix_proton_wide
+static std::string WideMkkChannelSuffix(const std::string& channelName) {
+  const std::string sig = "_signal";
+  if (channelName.size() > sig.size() &&
+      channelName.compare(channelName.size() - sig.size(), sig.size(), sig) == 0) {
+    return channelName.substr(0, channelName.size() - sig.size()) + "_wide";
+  }
+  if (channelName.compare(0, 8, "phi_rot_") == 0 || channelName.compare(0, 8, "phi_mix_") == 0) {
+    return channelName + "_wide";
+  }
+  return "";
 }
 
 Double_t StFemtoMaker::ComputeMomentumAngleRad(const TVector3& pA, const TVector3& pB) {
@@ -1658,13 +1855,13 @@ std::string StFemtoMaker::PhiPairMomAngleHistKey(const std::string& channel, Boo
   return PhiPairMomAngleHistKeyWithSuffix(channel, vsMkk, tofStrict ? "_tofStrict" : "");
 }
 
-void StFemtoMaker::FillPhiBachelorPairAngleQa() {
-  if (!m_histManager) return;
+void StFemtoMaker::FillPhiBachelorPairAngleQa() { 
+  if (!m_histManager) return; 
 
-  const FemtoConfig& femtoCfg = ConfigManager::GetInstance().GetFemtoConfig();
-  static const char* kBachelorKeys[] = {"proton", "deuteron", "triton", "he3", "he4", 0};
+  const FemtoConfig& femtoCfg = ConfigManager::GetInstance().GetFemtoConfig(); 
+  static const char* kBachelorKeys[] = {"proton", "deuteron", "triton", "he3", "he4", 0}; 
 
-  for (Int_t ib = 0; kBachelorKeys[ib]; ++ib) {
+  for (Int_t ib = 0; kBachelorKeys[ib]; ++ib) { 
     const std::string partB(kBachelorKeys[ib]);
     std::string channelName = std::string("phi_") + partB + "_signal";
     const FemtoConfig::ChannelDef* ch = femtoCfg.FindChannel(channelName);
@@ -1674,7 +1871,7 @@ void StFemtoMaker::FillPhiBachelorPairAngleQa() {
     if (itBach == m_eventCandidates.end() || itBach->second.empty()) continue;
     const std::vector<FemtoCandidate>& bachCands = itBach->second;
 
-    const std::string h1dLoose = PhiPairMomAngleHistKey(channelName, kFALSE, kFALSE);
+    const std::string h1dLoose = PhiPairMomAngleHistKey(channelName, kFALSE, kFALSE); 
     const std::string h2dLoose = PhiPairMomAngleHistKey(channelName, kTRUE, kFALSE);
     const std::string h1dStrict = PhiPairMomAngleHistKey(channelName, kFALSE, kTRUE);
     const std::string h2dStrict = PhiPairMomAngleHistKey(channelName, kTRUE, kTRUE);
@@ -1753,6 +1950,65 @@ void StFemtoMaker::FillPhiBachelorPairAngleQa() {
   }
 }
 
+void StFemtoMaker::FillPhiNearTrackPidQa() {
+  if (!m_histManager) return;
+  const FemtoConfig& femtoCfg = ConfigManager::GetInstance().GetFemtoConfig();
+  if (!femtoCfg.phiNearTrackQaEnabled) return;
+  if (m_nearTrackPidQa.empty()) return;
+
+  const FemtoConfig::ChannelDef* ch = femtoCfg.FindChannel(femtoCfg.phiNearTrackSignalChannel);
+  if (!ch || !ch->enabled) return;
+
+  FemtoCandidateStore::const_iterator itPhi = m_eventCandidates.find("phi");
+  if (itPhi == m_eventCandidates.end() || itPhi->second.empty()) return;
+
+  Double_t massHyp = kPionMass;
+  if (femtoCfg.phiNearTrackMassHyp == "proton") {
+    massHyp = kProtonMass;
+  } else if (femtoCfg.phiNearTrackMassHyp == "kaon") {
+    massHyp = kKaonMass;
+  }
+
+  const Double_t kLoose = femtoCfg.phiNearTrackMaxKstarLoose;
+  const Double_t kTight = femtoCfg.phiNearTrackMaxKstarTight;
+  const Bool_t hasDedxLoose = (m_histManager->Get("hDedxVsP_PhiSignalNear_k1") != 0);
+  const Bool_t hasDedxTight = (m_histManager->Get("hDedxVsP_PhiSignalNear_k03") != 0);
+  const Bool_t hasM2Loose = (m_histManager->Get("hMass2ChargeVsP_PhiSignalNear_k1") != 0);
+  const Bool_t hasM2Tight = (m_histManager->Get("hMass2ChargeVsP_PhiSignalNear_k03") != 0);
+  if (!hasDedxLoose && !hasDedxTight && !hasM2Loose && !hasM2Tight) return;
+
+  const std::vector<FemtoCandidate>& phiStore = itPhi->second;
+  for (size_t ip = 0; ip < phiStore.size(); ++ip) {
+    const FemtoCandidate& phiCand = phiStore[ip];
+    if (phiCand.reso.invMass < ch->signalMin || phiCand.reso.invMass > ch->signalMax) continue;
+    TLorentzVector pPhi = CandidateP4(phiCand);
+
+    for (size_t it = 0; it < m_nearTrackPidQa.size(); ++it) {
+      const NearTrackPidQa& trk = m_nearTrackPidQa[it];
+      if (trk.trackIndex == phiCand.reso.dau1Index || trk.trackIndex == phiCand.reso.dau2Index) continue;
+      if (trk.charge == 0) continue;
+
+      TVector3 p3(trk.px, trk.py, trk.pz);
+      const Double_t pMag = p3.Mag();
+      if (pMag <= 0.0) continue;
+      TLorentzVector pTrk(p3.X(), p3.Y(), p3.Z(), TMath::Sqrt(massHyp * massHyp + p3.Mag2()));
+      const Double_t kstar = ComputeKStar(pPhi, pTrk);
+      if (kstar >= kLoose) continue;
+
+      if (hasDedxLoose) m_histManager->Fill("hDedxVsP_PhiSignalNear_k1", pMag, trk.dedx);
+      if (trk.tofMatch && hasM2Loose) {
+        m_histManager->Fill("hMass2ChargeVsP_PhiSignalNear_k1", pMag, trk.mass2 * (Double_t)trk.charge);
+      }
+      if (kstar < kTight) {
+        if (hasDedxTight) m_histManager->Fill("hDedxVsP_PhiSignalNear_k03", pMag, trk.dedx);
+        if (trk.tofMatch && hasM2Tight) {
+          m_histManager->Fill("hMass2ChargeVsP_PhiSignalNear_k03", pMag, trk.mass2 * (Double_t)trk.charge);
+        }
+      }
+    }
+  }
+}
+
 void StFemtoMaker::FillSameEventPairs(const FemtoConfig::ChannelDef& ch) {
   FemtoCandidateStore::const_iterator itA = m_eventCandidates.find(ch.partA);
   FemtoCandidateStore::const_iterator itB = m_eventCandidates.find(ch.partB);
@@ -1764,16 +2020,23 @@ void StFemtoMaker::FillSameEventPairs(const FemtoConfig::ChannelDef& ch) {
 
   std::string hName = HistName("hKstarSE", ch.name);
   std::string h2dName = HistName("hKstarSEVsCent", ch.name);
+  const std::string wideCh = WideMkkChannelSuffix(ch.name);
+  const std::string hMkkWide = wideCh.empty() ? "" : HistName("hPhiMKK_vs_KstarSE", wideCh);
   const Double_t centX = (m_cent9 >= 0) ? (Double_t)m_cent9 : -0.5;
   for (size_t i = 0; i < candsA.size(); i++) {
     const FemtoCandidate& a = candsA[i];
-    if (a.source == kFemtoCandResonance) {
-      if (a.reso.invMass < ch.signalMin || a.reso.invMass > ch.signalMax) continue;
-    }
     for (size_t j = 0; j < candsB.size(); j++) {
       const FemtoCandidate& b = candsB[j];
       if (TracksOverlap(a, b)) continue;
       Double_t kstar = ComputeKStar(CandidateP4(a), CandidateP4(b));
+      if (m_histManager && a.source == kFemtoCandResonance && !hMkkWide.empty()) {
+        if (m_histManager->Get(hMkkWide.c_str())) {
+          m_histManager->Fill(hMkkWide.c_str(), a.reso.invMass, kstar, centX);
+        }
+      }
+      if (a.source == kFemtoCandResonance) {
+        if (a.reso.invMass < ch.signalMin || a.reso.invMass > ch.signalMax) continue;
+      }
       if (m_histManager) {
         m_histManager->Fill(hName.c_str(), kstar);
         if (m_histManager->Get(h2dName.c_str())) {
@@ -1819,26 +2082,42 @@ Int_t StFemtoMaker::GetMixingBin(Float_t vz, Int_t cent9, Double_t psi2) const {
 void StFemtoMaker::FillMixedEventPairs(const FemtoConfig::ChannelDef& ch, Float_t vz, Int_t cent9, Double_t psi2) {
   FemtoCandidateStore::const_iterator itA = m_eventCandidates.find(ch.partA);
   FemtoCandidateStore::const_iterator itB = m_eventCandidates.find(ch.partB);
-  if (itA == m_eventCandidates.end() || itB == m_eventCandidates.end()) return;
-  const std::vector<FemtoCandidate>& candsA = itA->second;
-  const std::vector<FemtoCandidate>& candsB = itB->second;
-  if (candsA.empty() || candsB.empty()) return;
+  const Bool_t hasCurrentA = (itA != m_eventCandidates.end() && !itA->second.empty());
+  const Bool_t hasCurrentB = (itB != m_eventCandidates.end() && !itB->second.empty());
 
   Int_t mixBin = GetMixingBin(vz, cent9, psi2);
   std::map<Int_t, std::deque<FemtoMixingEvent> >::const_iterator poolIt = m_mixingPool.find(mixBin);
   if (poolIt == m_mixingPool.end() || poolIt->second.empty()) return;
 
   const MixingConfig& mix = ConfigManager::GetInstance().GetMixingConfig();
+  // bufferAll directions are independent: current A x buffered B needs only
+  // current A, while buffered A x current B needs only current B. Requiring
+  // both current species drops valid ME pairs for rare bachelors.
+  if (mix.IsBufferAllMode()) {
+    if (!hasCurrentA && (!mix.mixBothDirections || !hasCurrentB)) return;
+  } else {
+    // Preserve legacy randomSample pair-count semantics (current A x current B
+    // determines the number of sampled current A x buffered B pairs).
+    if (!hasCurrentA || !hasCurrentB) return;
+  }
+
   std::string hName = HistName("hKstarME", ch.name);
   std::string h2dName = HistName("hKstarMEVsCent", ch.name);
+  const std::string wideCh = WideMkkChannelSuffix(ch.name);
+  const std::string hMkkWide = wideCh.empty() ? "" : HistName("hPhiMKK_vs_KstarME", wideCh);
   const Double_t centX = (m_cent9 >= 0) ? (Double_t)m_cent9 : -0.5;
 
   auto fillMixedPair = [&](const FemtoCandidate& a, const FemtoCandidate& b) {
+    if (TracksOverlap(a, b)) return;
+    Double_t kstar = ComputeKStar(CandidateP4(a), CandidateP4(b));
+    if (m_histManager && a.source == kFemtoCandResonance && !hMkkWide.empty()) {
+      if (m_histManager->Get(hMkkWide.c_str())) {
+        m_histManager->Fill(hMkkWide.c_str(), a.reso.invMass, kstar, centX);
+      }
+    }
     if (a.source == kFemtoCandResonance) {
       if (a.reso.invMass < ch.signalMin || a.reso.invMass > ch.signalMax) return;
     }
-    if (TracksOverlap(a, b)) return;
-    Double_t kstar = ComputeKStar(CandidateP4(a), CandidateP4(b));
     if (m_histManager) {
       m_histManager->Fill(hName.c_str(), kstar);
       if (m_histManager->Get(h2dName.c_str())) {
@@ -1858,18 +2137,20 @@ void StFemtoMaker::FillMixedEventPairs(const FemtoConfig::ChannelDef& ch, Float_
     for (size_t ie = 0; ie < pool.size(); ++ie) {
       const FemtoMixingEvent& mixEvt = pool[ie];
       FemtoCandidateStore::const_iterator mixB = mixEvt.candidates.find(ch.partB);
-      if (mixB != mixEvt.candidates.end()) {
+      if (hasCurrentA && mixB != mixEvt.candidates.end()) {
         const std::vector<FemtoCandidate>& bufB = mixB->second;
+        const std::vector<FemtoCandidate>& candsA = itA->second;
         for (size_t ia = 0; ia < candsA.size(); ++ia) {
           for (size_t ib = 0; ib < bufB.size(); ++ib) {
             fillMixedPair(candsA[ia], bufB[ib]);
           }
         }
       }
-      if (mix.mixBothDirections) {
+      if (mix.mixBothDirections && hasCurrentB) {
         FemtoCandidateStore::const_iterator mixA = mixEvt.candidates.find(ch.partA);
         if (mixA != mixEvt.candidates.end()) {
           const std::vector<FemtoCandidate>& bufA = mixA->second;
+          const std::vector<FemtoCandidate>& candsB = itB->second;
           for (size_t ia = 0; ia < bufA.size(); ++ia) {
             for (size_t ib = 0; ib < candsB.size(); ++ib) {
               fillMixedPair(bufA[ia], candsB[ib]);
@@ -1881,6 +2162,8 @@ void StFemtoMaker::FillMixedEventPairs(const FemtoConfig::ChannelDef& ch, Float_
     return;
   }
 
+  const std::vector<FemtoCandidate>& candsA = itA->second;
+  const std::vector<FemtoCandidate>& candsB = itB->second;
   Int_t nPairs = (Int_t)candsA.size() * (Int_t)candsB.size();
   if (mix.maxMixedPairsPerEvent > 0 && nPairs > mix.maxMixedPairsPerEvent) {
     nPairs = mix.maxMixedPairsPerEvent;
@@ -1907,6 +2190,151 @@ void StFemtoMaker::StoreEventForMixing(Float_t vz, Int_t cent9, Double_t psi2) {
   pool.push_back(evt);
   const MixingConfig& mix = ConfigManager::GetInstance().GetMixingConfig();
   while ((Int_t)pool.size() > mix.bufferSize) pool.pop_front();
+}
+
+void StFemtoMaker::FillKuboTripletBackground(const std::string& hadronSpecies, const std::string& baseName,
+                                             Float_t vz, Int_t cent9, Double_t psi2) {
+  if (!m_histManager) return;
+
+  FemtoCandidateStore::const_iterator itH = m_eventCandidates.find(hadronSpecies);
+  if (itH == m_eventCandidates.end() || itH->second.empty()) return;
+  const std::vector<FemtoCandidate>& hadrons = itH->second;
+
+  FemtoCandidateStore::const_iterator itKp = m_eventCandidates.find("phikaon_plus");
+  FemtoCandidateStore::const_iterator itKm = m_eventCandidates.find("phikaon_minus");
+  const Bool_t hasCurKp = (itKp != m_eventCandidates.end() && !itKp->second.empty());
+  const Bool_t hasCurKm = (itKm != m_eventCandidates.end() && !itKm->second.empty());
+
+  const Int_t mixBin = GetMixingBin(vz, cent9, psi2);
+  std::map<Int_t, std::deque<FemtoMixingEvent> >::const_iterator poolIt = m_mixingPool.find(mixBin);
+  if (poolIt == m_mixingPool.end() || poolIt->second.empty()) return;
+  const std::deque<FemtoMixingEvent>& pool = poolIt->second;
+
+  // Shared phi mass window: identical to the phi_<h>_signal channel used by the phi analysis.
+  const FemtoConfig& fc = ConfigManager::GetInstance().GetFemtoConfig();
+  const FemtoConfig::ChannelDef* chSig = fc.FindChannel(baseName + "_signal");
+  Double_t sigMin = 1.012;
+  Double_t sigMax = 1.026;
+  if (chSig) {
+    sigMin = chSig->signalMin;
+    sigMax = chSig->signalMax;
+  }
+  const Bool_t storeFull = fc.kuboStoreFullMass;
+  const Double_t centX = (cent9 >= 0) ? (Double_t)cent9 : -0.5;
+
+  const std::string hSEKp = HistName("hKstarTripSEKp", baseName);
+  const std::string hSEKm = HistName("hKstarTripSEKm", baseName);
+  const std::string hMix = HistName("hKstarTripMix", baseName);
+  const std::string hMkk = HistName("hMKKtriplet", baseName);
+  const std::string h3SEKp = HistName("hKuboMKK_vs_KstarSEKp", baseName);
+  const std::string h3SEKm = HistName("hKuboMKK_vs_KstarSEKm", baseName);
+  const std::string h3Mix = HistName("hKuboMKK_vs_KstarMix", baseName);
+  const std::string h3KK = HistName("hKuboMKK_vs_KstarKK", baseName);
+  const std::string hRej = HistName("hKuboNRejectShared", baseName);
+
+  auto fillTriplet = [&](const FemtoCandidate& h, const FemtoCandidate& kp, const FemtoCandidate& km,
+                         const std::string& histKey1D, const std::string& histKey3D) {
+    const TLorentzVector kk = kp.P4() + km.P4();
+    const Double_t mkk = kk.M();
+    if (m_histManager->Get(hMkk.c_str())) m_histManager->Fill(hMkk.c_str(), mkk);
+    const Double_t kstar = ComputeKStar(h.P4(), kk);
+    if (storeFull && m_histManager->Get(histKey3D.c_str())) {
+      m_histManager->Fill(histKey3D.c_str(), mkk, kstar, centX);
+    }
+    if (mkk < sigMin || mkk > sigMax) return;
+    if (m_histManager->Get(histKey1D.c_str())) m_histManager->Fill(histKey1D.c_str(), kstar);
+  };
+
+  // Term R+: K+ same event as the hadron, K- from a pool event -> K+ carries the genuine h-K+ correlation.
+  if (hasCurKp) {
+    const std::vector<FemtoCandidate>& curKp = itKp->second;
+    for (size_t ih = 0; ih < hadrons.size(); ++ih) {
+      for (size_t ip = 0; ip < curKp.size(); ++ip) {
+        if (hadrons[ih].trk.trackIndex >= 0 && hadrons[ih].trk.trackIndex == curKp[ip].trk.trackIndex) {
+          if (m_histManager->Get(hRej.c_str())) m_histManager->Fill(hRej.c_str(), 1.0);
+          continue;
+        }
+        for (size_t ie = 0; ie < pool.size(); ++ie) {
+          FemtoCandidateStore::const_iterator pKm = pool[ie].candidates.find("phikaon_minus");
+          if (pKm == pool[ie].candidates.end()) continue;
+          const std::vector<FemtoCandidate>& poolKm = pKm->second;
+          for (size_t im = 0; im < poolKm.size(); ++im) {
+            fillTriplet(hadrons[ih], curKp[ip], poolKm[im], hSEKp, h3SEKp);
+          }
+        }
+      }
+    }
+  }
+
+  // Term R-: K- same event as the hadron, K+ from a pool event -> K- carries the genuine h-K- correlation.
+  if (hasCurKm) {
+    const std::vector<FemtoCandidate>& curKm = itKm->second;
+    for (size_t ih = 0; ih < hadrons.size(); ++ih) {
+      for (size_t im = 0; im < curKm.size(); ++im) {
+        if (hadrons[ih].trk.trackIndex >= 0 && hadrons[ih].trk.trackIndex == curKm[im].trk.trackIndex) {
+          if (m_histManager->Get(hRej.c_str())) m_histManager->Fill(hRej.c_str(), 1.0);
+          continue;
+        }
+        for (size_t ie = 0; ie < pool.size(); ++ie) {
+          FemtoCandidateStore::const_iterator pKp = pool[ie].candidates.find("phikaon_plus");
+          if (pKp == pool[ie].candidates.end()) continue;
+          const std::vector<FemtoCandidate>& poolKp = pKp->second;
+          for (size_t ip = 0; ip < poolKp.size(); ++ip) {
+            fillTriplet(hadrons[ih], poolKp[ip], curKm[im], hSEKm, h3SEKm);
+          }
+        }
+      }
+    }
+  }
+
+  // Fully-mixed reference D: K+ and K- from two DISTINCT pool events.
+  if (pool.size() >= 2) {
+    for (size_t ih = 0; ih < hadrons.size(); ++ih) {
+      for (size_t ia = 0; ia < pool.size(); ++ia) {
+        FemtoCandidateStore::const_iterator pKp = pool[ia].candidates.find("phikaon_plus");
+        if (pKp == pool[ia].candidates.end() || pKp->second.empty()) continue;
+        const size_t ib = (ia + 1) % pool.size();
+        FemtoCandidateStore::const_iterator pKm = pool[ib].candidates.find("phikaon_minus");
+        if (pKm == pool[ib].candidates.end() || pKm->second.empty()) continue;
+        const std::vector<FemtoCandidate>& poolKp = pKp->second;
+        const std::vector<FemtoCandidate>& poolKm = pKm->second;
+        for (size_t ip = 0; ip < poolKp.size(); ++ip) {
+          for (size_t im = 0; im < poolKm.size(); ++im) {
+            fillTriplet(hadrons[ih], poolKp[ip], poolKm[im], hMix, h3Mix);
+          }
+        }
+      }
+    }
+  }
+
+  // KK term: same-event K+K- (keeps KK correlation), hadron from a distinct pool event.
+  if (hasCurKp && hasCurKm) {
+    const std::vector<FemtoCandidate>& curKp = itKp->second;
+    const std::vector<FemtoCandidate>& curKm = itKm->second;
+    for (size_t ie = 0; ie < pool.size(); ++ie) {
+      FemtoCandidateStore::const_iterator pH = pool[ie].candidates.find(hadronSpecies);
+      if (pH == pool[ie].candidates.end() || pH->second.empty()) continue;
+      const std::vector<FemtoCandidate>& poolH = pH->second;
+      for (size_t ih = 0; ih < poolH.size(); ++ih) {
+        for (size_t ip = 0; ip < curKp.size(); ++ip) {
+          for (size_t im = 0; im < curKm.size(); ++im) {
+            if (curKp[ip].trk.trackIndex >= 0 && curKp[ip].trk.trackIndex == curKm[im].trk.trackIndex) {
+              if (m_histManager->Get(hRej.c_str())) m_histManager->Fill(hRej.c_str(), 1.0);
+              continue;
+            }
+            // No 1D legacy key for KK; pass empty 1D name and only fill TH3 / MKK audit.
+            const TLorentzVector kk = curKp[ip].P4() + curKm[im].P4();
+            const Double_t mkk = kk.M();
+            if (m_histManager->Get(hMkk.c_str())) m_histManager->Fill(hMkk.c_str(), mkk);
+            const Double_t kstar = ComputeKStar(poolH[ih].P4(), kk);
+            if (storeFull && m_histManager->Get(h3KK.c_str())) {
+              m_histManager->Fill(h3KK.c_str(), mkk, kstar, centX);
+            }
+          }
+        }
+      }
+    }
+  }
 }
 
 void StFemtoMaker::FillCandidateQA() {
