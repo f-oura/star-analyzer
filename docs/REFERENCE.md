@@ -147,7 +147,7 @@ From the project root:
 
 ```bash
 source ./script/setup.sh config/mainconf/main_auau19_anaLambda.yaml
-make
+make -j$(nproc)
 ```
 
 This builds `lib/libStarAnaConfig.so`, `lib/libStRefMultCorr.so`, `lib/libStCommon.so`, and every `lib/libSt*Maker.so` discovered under `StMaker/St*Maker/` (directory name must match `StXxxMaker/StXxxMaker.cxx`). The Makefile uses `$STAR`, `$STAR_HOST_SYS`, and `root-config`; if `root-config` bitness does not match your setup, the build now fails early with a message telling you to re-source setup and verify `which root-config` / `root-config --cflags`.
@@ -220,7 +220,7 @@ Set `STAR_ANA_FIT_ROOT_CMD` to override (example: `STAR_ANA_FIT_ROOT_CMD=root`).
 
 On some login or dev nodes (for example AL9), host `root4star` may fail before the analysis macro runs (missing `libgfortran.so.3`, mixed 32-bit ROOT plugins for `root://`, and similar linker issues). Batch jobs already run `root4star` inside `singularity exec ... star-bnl/star-sw:latest`; use the matching **`singularity_*` wrappers** for local builds and runs on those hosts instead of calling host `root4star` or host `make` directly.
 
-- **Build:** `./script/singularity_make.sh MAINCONF [--no-clean] [make-args...]` — default `make clean && make` with `BUILD_BITS=64`; writes `lib/*.so` under the project root. After `make clean`, CMake is required to rebuild `src/third_party/yaml-cpp` (the wrapper prepends a cvmfs `cmake` when available). **This is the standard SL7-equivalent build:** `make` runs inside `star-bnl/star-sw:latest` with the same `STAR_HOST_SYS` resolution as batch (e.g. `sl73_x8664_gcc485`), so agents and humans can use it instead of an interactive `sl7` session whenever Singularity is available.
+- **Build:** `./script/singularity_make.sh MAINCONF [--no-clean] [make-args...]` — default `make clean && make -jN` (`N` = `nproc`) with `BUILD_BITS=64`; writes `lib/*.so` under the project root. Pass your own `-j` to override. After `make clean`, CMake is required to rebuild `src/third_party/yaml-cpp` (the wrapper prepends a cvmfs `cmake` when available). **This is the standard SL7-equivalent build:** `make` runs inside `star-bnl/star-sw:latest` with the same `STAR_HOST_SYS` resolution as batch (e.g. `sl73_x8664_gcc485`), so agents and humans can use it instead of an interactive `sl7` session whenever Singularity is available. Host `make` on AL9 often sees `STAR_HOST_SYS=al96_*` from `starver` even though that tree is missing; the wrapper is the intended replacement for `make -jN` on those nodes.
 - **Lambda:** `./script/singularity_run_anaLambda.sh` — same arguments as `run_anaLambda.sh`.
 - **Phi:** `./script/singularity_run_anaPhi.sh MAINCONF [inputFile] [outputFile] [jobid] [nEvents]` — same arguments as `run_anaPhi.sh` (defaults from analysis_info when input/output are omitted).
 - **Phi-p femto:** `./script/singularity_run_anaFemtoPhiProton.sh` — same arguments as `run_anaFemtoPhiProton.sh`; uses `StFemtoMaker` (`libStFemtoMaker.so`). Mainconf key **`maker:`** → `config/maker/maker_<anaName>.yaml` (φ builder + femto species/channels in one file).

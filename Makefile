@@ -1,6 +1,7 @@
 # Makefile for StarAnaConfig, StRefMultCorr, StCommon, and St*Maker libraries
 # Requires: STAR environment sourced via script/setup.sh or script/setup.csh
 # Usage: source ./script/setup.sh config/mainconf/main_<anaName>.yaml && make
+# On AL9 (no sl7): ./script/singularity_make.sh config/mainconf/main_<anaName>.yaml [--no-clean]
 #
 # Maker convention (auto-discovered; no Makefile edit needed for new makers):
 #   StMaker/StXxxMaker/StXxxMaker.cxx + StXxxMaker.h -> lib/libStXxxMaker.so
@@ -33,33 +34,42 @@ else
   $(error Unknown BUILD_BITS='$(BUILD_BITS)' (expected auto, 32, or 64))
 endif
 
+# Prefer $STAR/.$STAR_HOST_SYS when that tree exists. Host starver on AL9
+# exports STAR_HOST_SYS=al96_* even when this libraryTag was not built for it;
+# then fall back the same way as script/setup.sh (sl73/sl74).
+STAR_OBJ :=
 ifneq ($(STAR_HOST_SYS),)
-  STAR_OBJ := $(STAR)/.$(STAR_HOST_SYS)
-  ifeq ($(wildcard $(STAR_OBJ)),)
-    $(error STAR_HOST_SYS='$(STAR_HOST_SYS)' does not exist under $(STAR))
+  ifneq ($(wildcard $(STAR)/.$(STAR_HOST_SYS)),)
+    STAR_OBJ := $(STAR)/.$(STAR_HOST_SYS)
+  else
+    $(warning STAR_HOST_SYS='$(STAR_HOST_SYS)' is not present under $(STAR); falling back to sl73/sl74. On AL9 use ./script/singularity_make.sh <mainconf> [--no-clean] instead of host make.)
   endif
-else ifeq ($(ARCH_FLAGS),-m32)
-  STAR_OBJ := $(STAR)/.sl74_gcc485
-  ifeq ($(wildcard $(STAR_OBJ)),)
-    STAR_OBJ := $(STAR)/.sl73_gcc485
-  endif
-  ifeq ($(wildcard $(STAR_OBJ)),)
-    STAR_OBJ := $(STAR)/.sl74_x8664_gcc485
-  endif
-  ifeq ($(wildcard $(STAR_OBJ)),)
-    STAR_OBJ := $(STAR)/.sl73_x8664_gcc485
-  endif
-else
-  # Default to x86_64 when no explicit STAR_HOST_SYS is exported.
-  STAR_OBJ := $(STAR)/.sl74_x8664_gcc485
-  ifeq ($(wildcard $(STAR_OBJ)),)
-    STAR_OBJ := $(STAR)/.sl73_x8664_gcc485
-  endif
-  ifeq ($(wildcard $(STAR_OBJ)),)
+endif
+
+ifeq ($(STAR_OBJ),)
+  ifeq ($(ARCH_FLAGS),-m32)
     STAR_OBJ := $(STAR)/.sl74_gcc485
-  endif
-  ifeq ($(wildcard $(STAR_OBJ)),)
-    STAR_OBJ := $(STAR)/.sl73_gcc485
+    ifeq ($(wildcard $(STAR_OBJ)),)
+      STAR_OBJ := $(STAR)/.sl73_gcc485
+    endif
+    ifeq ($(wildcard $(STAR_OBJ)),)
+      STAR_OBJ := $(STAR)/.sl74_x8664_gcc485
+    endif
+    ifeq ($(wildcard $(STAR_OBJ)),)
+      STAR_OBJ := $(STAR)/.sl73_x8664_gcc485
+    endif
+  else
+    # Default to x86_64 when STAR_HOST_SYS is unset or its tree is missing.
+    STAR_OBJ := $(STAR)/.sl74_x8664_gcc485
+    ifeq ($(wildcard $(STAR_OBJ)),)
+      STAR_OBJ := $(STAR)/.sl73_x8664_gcc485
+    endif
+    ifeq ($(wildcard $(STAR_OBJ)),)
+      STAR_OBJ := $(STAR)/.sl74_gcc485
+    endif
+    ifeq ($(wildcard $(STAR_OBJ)),)
+      STAR_OBJ := $(STAR)/.sl73_gcc485
+    endif
   endif
 endif
 
