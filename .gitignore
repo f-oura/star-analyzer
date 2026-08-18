@@ -11,6 +11,7 @@ cmake_install.cmake
 # binary 
 build/
 bin/
+tmp/
 *.cpp~
 
 # ROOT
