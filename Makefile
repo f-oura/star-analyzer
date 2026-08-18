@@ -142,9 +142,17 @@ MAKER_DIRS := $(wildcard StMaker/St*Maker)
 MAKER_NAMES := $(notdir $(MAKER_DIRS))
 MAKER_LIBS := $(patsubst %,$(LIB_DIR)/lib%.so,$(MAKER_NAMES))
 
-.PHONY: all clean
+TEST_FEMTO_TRACK_OVERLAP := $(LIB_DIR)/test_femto_track_overlap
+
+.PHONY: all clean test-femto-track-overlap
 
 all: $(LIB_DIR)/libStarAnaConfig.so $(LIB_DIR)/$(LIB_RMC_NAME) $(LIB_DIR)/$(LIB_COMMON_NAME) $(MAKER_LIBS)
+
+test-femto-track-overlap: $(TEST_FEMTO_TRACK_OVERLAP)
+	$(TEST_FEMTO_TRACK_OVERLAP)
+
+$(TEST_FEMTO_TRACK_OVERLAP): tests/test_femto_track_overlap.cpp include/FemtoCandidate.h | $(LIB_DIR)
+	$(CXX) $(ARCH_FLAGS) -O2 -Wall -std=c++11 $(ROOTCFLAGS) -Iinclude $< -o $@ $(ROOTLDFLAGS) $(ROOTLIBS)
 
 # Build yaml-cpp via CMake (static lib, must match STAR/ROOT bitness)
 $(YAML_CPP_BUILD)/libyaml-cpp.a:
@@ -227,4 +235,5 @@ $(foreach maker,$(MAKER_NAMES),$(eval $(call MAKER_RULE,$(maker))))
 
 clean:
 	rm -f $(LIB_DIR)/*.o $(LIB_DIR)/*.so
+	rm -f $(TEST_FEMTO_TRACK_OVERLAP)
 	rm -rf $(YAML_CPP_BUILD)

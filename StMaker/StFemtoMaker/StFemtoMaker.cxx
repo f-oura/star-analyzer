@@ -1405,7 +1405,9 @@ FemtoCandidate StFemtoMaker::MakePhiCandidate(const TrackState& kPlus, const Tra
   cand.y = (Float_t)pairRapidity;
   cand.reso.invMass = (Float_t)invMass;
   cand.reso.dcaDaughters = (Float_t)dcaKK;
+  cand.reso.dau1EventIndex = eventIndex;
   cand.reso.dau1Index = kPlus.trackIndex;
+  cand.reso.dau2EventIndex = eventIndex;
   cand.reso.dau2Index = kMinus.trackIndex;
   ComputePhiBetaGamma(kPlus.tofMatch, kPlus.tofBeta, kMinus.tofMatch, kMinus.tofBeta, cand.reso.betaGamma);
   (void)openingAngle;
@@ -1670,7 +1672,8 @@ void StFemtoMaker::BuildFullyMixedPhiCandidates(const std::string& speciesKey,
   Int_t nCand = 0;
   const Int_t maxCand = fc.fullyMixedMaxCandidates;
 
-  auto tryPushPair = [&](const TLorentzVector& pKp4, const TLorentzVector& pKm4, Int_t dau1Idx, Int_t dau2Idx) {
+  auto tryPushPair = [&](const TLorentzVector& pKp4, const TLorentzVector& pKm4, Int_t dau1EventIndex,
+                         Int_t dau1Idx, Int_t dau2EventIndex, Int_t dau2Idx) {
     if (maxCand > 0 && nCand >= maxCand) return;
     TLorentzVector pKK = pKp4 + pKm4;
     const Double_t invMass = pKK.M();
@@ -1695,7 +1698,9 @@ void StFemtoMaker::BuildFullyMixedPhiCandidates(const std::string& speciesKey,
     cand.y = (Float_t)pairRapidity;
     cand.reso.invMass = (Float_t)invMass;
     cand.reso.dcaDaughters = -1.0f;  // cross-event: no common DCA
+    cand.reso.dau1EventIndex = dau1EventIndex;
     cand.reso.dau1Index = dau1Idx;
+    cand.reso.dau2EventIndex = dau2EventIndex;
     cand.reso.dau2Index = dau2Idx;
     cand.reso.betaGamma = -1.0f;
     out.push_back(cand);
@@ -1718,7 +1723,8 @@ void StFemtoMaker::BuildFullyMixedPhiCandidates(const std::string& speciesKey,
         TLorentzVector pKp4(pPlus.X(), pPlus.Y(), pPlus.Z(), TMath::Sqrt(mK * mK + pPlus.Mag2()));
         for (size_t im = 0; im < poolKm.size(); ++im) {
           if (maxCand > 0 && nCand >= maxCand) break;
-          tryPushPair(pKp4, CandidateP4(poolKm[im]), kaonsPlus[ip].trackIndex, poolKm[im].trk.trackIndex);
+          tryPushPair(pKp4, CandidateP4(poolKm[im]), eventIndex, kaonsPlus[ip].trackIndex, poolKm[im].eventIndex,
+                      poolKm[im].trk.trackIndex);
         }
       }
     }
@@ -1733,7 +1739,8 @@ void StFemtoMaker::BuildFullyMixedPhiCandidates(const std::string& speciesKey,
         TLorentzVector pKm4(pMinus.X(), pMinus.Y(), pMinus.Z(), TMath::Sqrt(mK * mK + pMinus.Mag2()));
         for (size_t ip = 0; ip < poolKp.size(); ++ip) {
           if (maxCand > 0 && nCand >= maxCand) break;
-          tryPushPair(CandidateP4(poolKp[ip]), pKm4, poolKp[ip].trk.trackIndex, kaonsMinus[im].trackIndex);
+          tryPushPair(CandidateP4(poolKp[ip]), pKm4, poolKp[ip].eventIndex, poolKp[ip].trk.trackIndex, eventIndex,
+                      kaonsMinus[im].trackIndex);
         }
       }
     }
@@ -1798,19 +1805,7 @@ Double_t StFemtoMaker::ComputeKStar(const TLorentzVector& pA, const TLorentzVect
 }
 
 Bool_t StFemtoMaker::TracksOverlap(const FemtoCandidate& a, const FemtoCandidate& b) const {
-  // Resonance-vs-track: reject if the bare track is one of the resonance daughters (original behavior).
-  if (a.source == kFemtoCandResonance) {
-    Int_t idx = b.trk.trackIndex;
-    return (idx == a.reso.dau1Index || idx == a.reso.dau2Index);
-  }
-  if (b.source == kFemtoCandResonance) {
-    Int_t idx = a.trk.trackIndex;
-    return (idx == b.reso.dau1Index || idx == b.reso.dau2Index);
-  }
-  // Track-vs-track (e.g. h-K two-body): reject only the identical physical track, i.e. same event AND
-  // same track index (a track passing two PID hypotheses paired with itself). Cross-event mixed pairs
-  // never share an event index, so they are unaffected.
-  return (a.trk.trackIndex >= 0 && a.trk.trackIndex == b.trk.trackIndex && a.eventIndex == b.eventIndex);
+  return FemtoCandidatesShareTrack(a, b);
 }
 
 std::string StFemtoMaker::HistName(const std::string& prefix, const std::string& channelName) const {

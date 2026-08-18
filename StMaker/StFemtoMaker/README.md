@@ -132,6 +132,9 @@ When adding particles or channels, follow these rules and update `FemtoConfig` Y
 - `maxMixedPairsPerEvent`: cap for **randomSample only** — max ME pairs **per event** (default 500; 0 = unlimited). Ignored by `bufferAll`.
 - `mixBothDirections`: with `bufferAll`, also mix buffer `partA` with current `partB` (and vice versa). The two directions are independent: current `partA` × buffered `partB` does not require current `partB`, and buffered `partA` × current `partB` does not require current `partA`. This preserves valid ME pairs for rare bachelors (t, ³He, ⁴He) even when the current event cannot form an SE pair.
 - **Mixing bin:** `GetMixingBin(vz, cent9, psi2)` uses Vz bin × **cent9 as bin index** × EP bin. ME pairs only **different events** in the same bin (never same-event pairs; those are SE).
+- **Shared-track provenance:** each resonance daughter is stored as `(eventIndex, trackIndex)`. Real and rotated φ
+  daughters share the current event index; fully mixed φ daughters retain their distinct current/pool event indices.
+  Overlap rejection requires both fields to match, so a reused local track index from another event is not rejected.
 - **Centrality slices in checkHist:** `pct_0_10` etc. project cent9 ranges **after** fill; Maker mixing stays at cent9 resolution.
 - Changing mixing requires a **new batch run**; cent-slice CF projection uses existing `hKstar*VsCent_*` in merge ROOT.
 - **Rollout:** benchmark `bufferAll` on a short joblist before full catalog; check high-k* `C→1`, ME shape, job time, merge ROOT size.
