@@ -324,6 +324,50 @@ def phi_near_track_pid_blocks() -> dict[str, str]:
     }
 
 
+def phi_dau_pid_blocks() -> dict[str, str]:
+    """Loose vs production phi-daughter PID QA (K+/K-, low/high p, TOF yes/no)."""
+    blocks: dict[str, str] = {}
+    for ch, label in (("Kp", "K^{+}"), ("Km", "K^{-}")):
+        for stage, title in (("Loose", "loose TPC"), ("Prod", "production PID"), ("Reject", "PID reject")):
+            blocks[f"hPhiDauPid_N{stage}_{ch}"] = (
+                f"  hPhiDauPid_N{stage}_{ch}:\n"
+                "    axis: *NKaon\n"
+                f'    title: "N_{{{label}}} {title} per event;N;Counts"\n'
+            )
+            blocks[f"hPhiDauPid_TofMatchVsP_{stage}_{ch}"] = (
+                f"  hPhiDauPid_TofMatchVsP_{stage}_{ch}:\n"
+                "    xAxis: *Momentum\n"
+                "    yAxis: *Charge\n"
+                f'    title: "{label} TOF match vs p ({title});p [GeV/c];TOF match"\n'
+            )
+            blocks[f"hPhiDauPid_Category_{stage}_{ch}"] = (
+                f"  hPhiDauPid_Category_{stage}_{ch}:\n"
+                "    axis: *PhiDauPidCat\n"
+                f'    title: "{label} PID category ({title});0=low noTOF, 1=low TOF, 2=high noTOF, 3=high TOF;Counts"\n'
+            )
+        for stage in ("Loose", "Prod"):
+            blocks[f"hPhiDauPid_Mass2VsP_{stage}_{ch}"] = (
+                f"  hPhiDauPid_Mass2VsP_{stage}_{ch}:\n"
+                "    xAxis: *Momentum\n"
+                "    yAxis: *Mass2Y\n"
+                f'    title: "{label} TOF m^{{2}} vs p ({stage});p [GeV/c];m^{{2}}"\n'
+            )
+        for source in ("real", "rot", "mix"):
+            blocks[f"hPhiDauPidUsed_TofMatchVsP_{source}_{ch}"] = (
+                f"  hPhiDauPidUsed_TofMatchVsP_{source}_{ch}:\n"
+                "    xAxis: *Momentum\n"
+                "    yAxis: *Charge\n"
+                f'    title: "{label} used in {source} #phi: TOF vs p;p [GeV/c];TOF match"\n'
+            )
+            blocks[f"hPhiDauPidUsed_Mass2VsP_{source}_{ch}"] = (
+                f"  hPhiDauPidUsed_Mass2VsP_{source}_{ch}:\n"
+                "    xAxis: *Momentum\n"
+                "    yAxis: *Mass2Y\n"
+                f'    title: "{label} used in {source} #phi: m^{{2}} vs p;p [GeV/c];m^{{2}}"\n'
+            )
+    return blocks
+
+
 def main() -> None:
     he4_text = (HIST_DIR / "hist_anaFemtoPhi4He.yaml").read_text()
     proton_text = (HIST_DIR / "hist_anaFemtoPhiProton.yaml").read_text()
@@ -373,6 +417,13 @@ def main() -> None:
 
     if "  DedxNearY: &DedxNearY\n" not in merged_axes:
         merged_axes = merged_axes.rstrip() + "\n" + PHI_NEAR_TRACK_AXES.lstrip("\n")
+    if "  PhiDauPidCat: &PhiDauPidCat\n" not in merged_axes:
+        merged_axes = merged_axes.rstrip() + (
+            "\n  PhiDauPidCat: &PhiDauPidCat\n"
+            "    nBins: 4\n"
+            "    min: -0.5\n"
+            "    max: 3.5\n\n"
+        )
     if not merged_axes.endswith("\n"):
         merged_axes += "\n"
 
@@ -387,6 +438,7 @@ def main() -> None:
         common[name] = block
 
     common.update(phi_near_track_pid_blocks())
+    common.update(phi_dau_pid_blocks())
     common["hMixSamplerQA"] = """  hMixSamplerQA:
     type: TH2D
     xAxis: *MixSamplerStatus

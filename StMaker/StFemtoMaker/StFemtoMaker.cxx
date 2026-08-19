@@ -574,6 +574,18 @@ Int_t StFemtoMaker::Make() {
     }
   }
 
+  std::vector<TrackState> kaonsPlusProd;
+  std::vector<TrackState> kaonsMinusProd;
+  kaonsPlusProd.reserve(kaonsPlus.size());
+  kaonsMinusProd.reserve(kaonsMinus.size());
+  for (size_t i = 0; i < kaonsPlus.size(); ++i) {
+    if (PassPhiDaughterTofPid(kaonsPlus[i])) kaonsPlusProd.push_back(kaonsPlus[i]);
+  }
+  for (size_t i = 0; i < kaonsMinus.size(); ++i) {
+    if (PassPhiDaughterTofPid(kaonsMinus[i])) kaonsMinusProd.push_back(kaonsMinus[i]);
+  }
+  FillPhiDaughterPidTrackQa(kaonsPlus, kaonsMinus);
+
   TVector2 Q(Qx, Qy);
   if (Q.Mod() > 0) {
     m_psi2 = 0.5 * TMath::ATan2(Qy, Qx);
@@ -586,12 +598,12 @@ Int_t StFemtoMaker::Make() {
     const FemtoConfig::SpeciesDef& sp = it->second;
     if (sp.builderType == "track") {
       BuildTrackPidCandidates(sp.key, sp.particleKey, protons, kaonMinusTracks, he4Tracks, deuteronTracks,
-                              tritonTracks, he3Tracks, kaonsPlus, kaonsMinus, mEventCounter);
+                              tritonTracks, he3Tracks, kaonsPlusProd, kaonsMinusProd, mEventCounter);
     } else if (sp.builderType == "resonance") {
       if (sp.particleKey == femtoCfg.rotationParticleKey) {
-        BuildRotatedPhiCandidates(sp.key, kaonsPlus, kaonsMinus, mEventCounter);
+        BuildRotatedPhiCandidates(sp.key, kaonsPlusProd, kaonsMinusProd, mEventCounter);
       } else if (sp.particleKey == femtoCfg.fullyMixedParticleKey) {
-        BuildFullyMixedPhiCandidates(sp.key, kaonsPlus, kaonsMinus, vz, m_cent9, m_psi2, mEventCounter);
+        BuildFullyMixedPhiCandidates(sp.key, kaonsPlusProd, kaonsMinusProd, vz, m_cent9, m_psi2, mEventCounter);
       } else {
         BuildResonanceCandidates(sp.key, sp.particleKey, kaonsPlus, kaonsMinus, mEventCounter);
       }
@@ -775,6 +787,17 @@ void StFemtoMaker::FillTofInfo(TrackState& track, StPicoTrack* trk, const TVecto
 
 Bool_t StFemtoMaker::PassTofKaonPid(const TrackState& trk) const {
   return StPhiKKReconstruction::PassTofKaonPid(ToPhiKkTrack(trk));
+}
+
+Bool_t StFemtoMaker::PassPhiDaughterTofPid(const TrackState& trk) const {
+  const Float_t pMag = (Float_t)TrackMomentum(trk).Mag();
+  return StPhiKKReconstruction::PassPhiDaughterTofPid(pMag, trk.tofMatch, trk.mass2, trk.deltaOneOverBeta);
+}
+
+Bool_t StFemtoMaker::PassPhiDaughterTofPid(const FemtoCandidate& cand) const {
+  const TLorentzVector p4 = CandidateP4(cand);
+  return StPhiKKReconstruction::PassPhiDaughterTofPid((Float_t)p4.P(), cand.trk.tofMatch, cand.trk.mass2,
+                                                      cand.trk.deltaOneOverBeta);
 }
 
 Bool_t StFemtoMaker::PassTofProtonPid(const TrackState& trk) const {
@@ -1292,8 +1315,7 @@ FemtoCandidate StFemtoMaker::MakeKaonMinusCandidate(const TrackState& trk, Int_t
   return cand;
 }
 
-// Charge-generic kaon candidate built from a phi-daughter TrackState (kaon mass hypothesis). The
-// selection is whatever produced kaonsPlus/kaonsMinus (phi-daughter cuts + IsKaon), by construction.
+// Charge-generic kaon candidate built from a production phi-daughter TrackState.
 FemtoCandidate StFemtoMaker::MakePhiDaughterKaonCandidate(const TrackState& trk, Int_t eventIndex,
                                                           const std::string& speciesKey) const {
   FemtoCandidate cand;
@@ -1307,6 +1329,8 @@ FemtoCandidate StFemtoMaker::MakePhiDaughterKaonCandidate(const TrackState& trk,
   cand.trk.nSigmaKaon = trk.nSigmaKaon;
   cand.trk.nSigmaProton = trk.nSigmaProton;
   cand.trk.mass2 = trk.mass2;
+  cand.trk.deltaOneOverBeta = trk.deltaOneOverBeta;
+  cand.trk.tofMatch = trk.tofMatch;
   cand.trk.dca = trk.DCA;
   cand.trk.nHitsFit = trk.nHitsFit;
   return cand;
@@ -1425,8 +1449,7 @@ void StFemtoMaker::BuildTrackPidCandidates(const std::string& speciesKey, const 
                                            const std::vector<TrackState>& phiKaonsPlus,
                                            const std::vector<TrackState>& phiKaonsMinus, Int_t eventIndex) {
   std::vector<FemtoCandidate>& out = m_eventCandidates[speciesKey];
-  // phi-daughter kaon species: identical selection to the phi-daughter kaons (kaonsPlus/kaonsMinus),
-  // NOT the anaFemtoKaon bachelor kaon (kaon_minus) path.
+  // phi-daughter kaon species: production PID (PassPhiDaughterTofPid), not the loose TPC collection.
   if (particleKey == "phi_kaon_plus") {
     for (size_t i = 0; i < phiKaonsPlus.size(); i++) {
       out.push_back(MakePhiDaughterKaonCandidate(phiKaonsPlus[i], eventIndex, speciesKey));
@@ -1569,6 +1592,11 @@ void StFemtoMaker::BuildResonanceCandidates(const std::string& speciesKey, const
 
       FillPhiCandidatePreCutQa(invMass, phiMom.Pt(), pairRapidity);
 
+      FillUsedPhiDaughterPidQa("real", kTRUE, (Float_t)TrackMomentum(kaonsPlus[iPlus]).Mag(),
+                               kaonsPlus[iPlus].tofMatch, kaonsPlus[iPlus].mass2);
+      FillUsedPhiDaughterPidQa("real", kFALSE, (Float_t)TrackMomentum(kaonsMinus[iMinus]).Mag(),
+                               kaonsMinus[iMinus].tofMatch, kaonsMinus[iMinus].mass2);
+
       out.push_back(MakePhiCandidate(kaonsPlus[iPlus], kaonsMinus[iMinus], invMass, phiMom, openingAngle,
                                      pairRapidity, dcaKK, eventIndex, speciesKey));
     }
@@ -1615,6 +1643,11 @@ void StFemtoMaker::BuildRotatedPhiCandidates(const std::string& speciesKey, cons
           (pairRapidity >= phiCfg.minPairRapidity && pairRapidity <= phiCfg.maxPairRapidity);
       if (!passStage) continue;
       if (!PassPairTofCut(kaonsPlus[iPlus], kaonsMinus[iMinus])) continue;
+
+      FillUsedPhiDaughterPidQa("rot", kTRUE, (Float_t)TrackMomentum(kaonsPlus[iPlus]).Mag(),
+                               kaonsPlus[iPlus].tofMatch, kaonsPlus[iPlus].mass2);
+      FillUsedPhiDaughterPidQa("rot", kFALSE, (Float_t)TrackMomentum(kaonsMinus[iMinus]).Mag(),
+                               kaonsMinus[iMinus].tofMatch, kaonsMinus[iMinus].mass2);
 
       TVector3 pMinus = TrackMomentum(kaonsMinus[iMinus]);
       Double_t eMinus = TMath::Sqrt(mK * mK + pMinus.Mag2());
@@ -1674,11 +1707,11 @@ void StFemtoMaker::BuildFullyMixedPhiCandidates(const std::string& speciesKey,
   const Int_t maxCand = fc.fullyMixedMaxCandidates;
 
   auto tryPushPair = [&](const TLorentzVector& pKp4, const TLorentzVector& pKm4, Int_t dau1EventIndex,
-                         Int_t dau1Idx, Int_t dau2EventIndex, Int_t dau2Idx) {
-    if (maxCand > 0 && nCand >= maxCand) return;
+                         Int_t dau1Idx, Int_t dau2EventIndex, Int_t dau2Idx) -> Bool_t {
+    if (maxCand > 0 && nCand >= maxCand) return kFALSE;
     TLorentzVector pKK = pKp4 + pKm4;
     const Double_t invMass = pKK.M();
-    if (invMass <= 0.0) return;
+    if (invMass <= 0.0) return kFALSE;
 
     TVector3 pPlus = pKp4.Vect();
     TVector3 pMinus = pKm4.Vect();
@@ -1686,8 +1719,8 @@ void StFemtoMaker::BuildFullyMixedPhiCandidates(const std::string& speciesKey,
     TVector3 phiMom = pKK.Vect();
     const Double_t yLab = CalculatePairRapidity(invMass, phiMom);
     const Double_t pairRapidity = ApplyRapidityFrame(yLab);
-    if (openingAngle < phiCfg.minOpeningAngle || openingAngle > phiCfg.maxOpeningAngle) return;
-    if (pairRapidity < phiCfg.minPairRapidity || pairRapidity > phiCfg.maxPairRapidity) return;
+    if (openingAngle < phiCfg.minOpeningAngle || openingAngle > phiCfg.maxOpeningAngle) return kFALSE;
+    if (pairRapidity < phiCfg.minPairRapidity || pairRapidity > phiCfg.maxPairRapidity) return kFALSE;
 
     FemtoCandidate cand;
     cand.eventIndex = eventIndex;
@@ -1709,6 +1742,7 @@ void StFemtoMaker::BuildFullyMixedPhiCandidates(const std::string& speciesKey,
     if (m_histManager && m_histManager->Get("hPhiMix_MKK")) {
       m_histManager->Fill("hPhiMix_MKK", invMass);
     }
+    return kTRUE;
   };
 
   for (size_t ie = 0; ie < pool.size(); ++ie) {
@@ -1720,12 +1754,19 @@ void StFemtoMaker::BuildFullyMixedPhiCandidates(const std::string& speciesKey,
       const std::vector<FemtoCandidate>& poolKm = pKm->second;
       for (size_t ip = 0; ip < kaonsPlus.size(); ++ip) {
         if (maxCand > 0 && nCand >= maxCand) break;
+        if (!PassPhiDaughterTofPid(kaonsPlus[ip])) continue;
         TVector3 pPlus = TrackMomentum(kaonsPlus[ip]);
         TLorentzVector pKp4(pPlus.X(), pPlus.Y(), pPlus.Z(), TMath::Sqrt(mK * mK + pPlus.Mag2()));
         for (size_t im = 0; im < poolKm.size(); ++im) {
           if (maxCand > 0 && nCand >= maxCand) break;
-          tryPushPair(pKp4, CandidateP4(poolKm[im]), eventIndex, kaonsPlus[ip].trackIndex, poolKm[im].eventIndex,
-                      poolKm[im].trk.trackIndex);
+          if (!PassPhiDaughterTofPid(poolKm[im])) continue;
+          if (tryPushPair(pKp4, CandidateP4(poolKm[im]), eventIndex, kaonsPlus[ip].trackIndex, poolKm[im].eventIndex,
+                          poolKm[im].trk.trackIndex)) {
+            FillUsedPhiDaughterPidQa("mix", kTRUE, (Float_t)pPlus.Mag(), kaonsPlus[ip].tofMatch,
+                                     kaonsPlus[ip].mass2);
+            FillUsedPhiDaughterPidQa("mix", kFALSE, (Float_t)CandidateP4(poolKm[im]).P(), poolKm[im].trk.tofMatch,
+                                     poolKm[im].trk.mass2);
+          }
         }
       }
     }
@@ -1736,12 +1777,19 @@ void StFemtoMaker::BuildFullyMixedPhiCandidates(const std::string& speciesKey,
       const std::vector<FemtoCandidate>& poolKp = pKp->second;
       for (size_t im = 0; im < kaonsMinus.size(); ++im) {
         if (maxCand > 0 && nCand >= maxCand) break;
+        if (!PassPhiDaughterTofPid(kaonsMinus[im])) continue;
         TVector3 pMinus = TrackMomentum(kaonsMinus[im]);
         TLorentzVector pKm4(pMinus.X(), pMinus.Y(), pMinus.Z(), TMath::Sqrt(mK * mK + pMinus.Mag2()));
         for (size_t ip = 0; ip < poolKp.size(); ++ip) {
           if (maxCand > 0 && nCand >= maxCand) break;
-          tryPushPair(CandidateP4(poolKp[ip]), pKm4, poolKp[ip].eventIndex, poolKp[ip].trk.trackIndex, eventIndex,
-                      kaonsMinus[im].trackIndex);
+          if (!PassPhiDaughterTofPid(poolKp[ip])) continue;
+          if (tryPushPair(CandidateP4(poolKp[ip]), pKm4, poolKp[ip].eventIndex, poolKp[ip].trk.trackIndex, eventIndex,
+                          kaonsMinus[im].trackIndex)) {
+            FillUsedPhiDaughterPidQa("mix", kTRUE, (Float_t)CandidateP4(poolKp[ip]).P(), poolKp[ip].trk.tofMatch,
+                                     poolKp[ip].trk.mass2);
+            FillUsedPhiDaughterPidQa("mix", kFALSE, (Float_t)pMinus.Mag(), kaonsMinus[im].tofMatch,
+                                     kaonsMinus[im].mass2);
+          }
         }
       }
     }
@@ -1750,6 +1798,68 @@ void StFemtoMaker::BuildFullyMixedPhiCandidates(const std::string& speciesKey,
   if (m_histManager && m_histManager->Get("hPhiMix_NCand")) {
     m_histManager->Fill("hPhiMix_NCand", (Double_t)nCand);
   }
+}
+
+void StFemtoMaker::FillPhiDaughterPidTrackQa(const std::vector<TrackState>& kaonsPlus,
+                                             const std::vector<TrackState>& kaonsMinus) {
+  if (!m_histManager || !m_histManager->Get("hPhiDauPid_NLoose_Kp")) return;
+  const PIDCutConfig& pid = ConfigManager::GetInstance().GetPIDCuts();
+  const Double_t pLow = pid.pMomKaonPID;
+
+  Int_t nProdPlus = 0;
+  Int_t nRejectPlus = 0;
+  Int_t nProdMinus = 0;
+  Int_t nRejectMinus = 0;
+
+  auto fillOne = [&](const TrackState& trk, Bool_t isPlus) {
+    const Float_t pMag = (Float_t)TrackMomentum(trk).Mag();
+    const Bool_t passProd = PassPhiDaughterTofPid(trk);
+    const Double_t cat = (pMag <= pLow ? 0.0 : 2.0) + (trk.tofMatch ? 1.0 : 0.0);
+    const char* ch = isPlus ? "Kp" : "Km";
+    m_histManager->Fill(TString::Format("hPhiDauPid_TofMatchVsP_Loose_%s", ch).Data(), pMag,
+                        trk.tofMatch ? 1.0 : 0.0);
+    m_histManager->Fill(TString::Format("hPhiDauPid_Category_Loose_%s", ch).Data(), cat);
+    if (trk.tofMatch) {
+      m_histManager->Fill(TString::Format("hPhiDauPid_Mass2VsP_Loose_%s", ch).Data(), pMag, trk.mass2);
+    }
+    if (passProd) {
+      if (isPlus) nProdPlus++;
+      else nProdMinus++;
+      m_histManager->Fill(TString::Format("hPhiDauPid_TofMatchVsP_Prod_%s", ch).Data(), pMag,
+                          trk.tofMatch ? 1.0 : 0.0);
+      m_histManager->Fill(TString::Format("hPhiDauPid_Category_Prod_%s", ch).Data(), cat);
+      if (trk.tofMatch) {
+        m_histManager->Fill(TString::Format("hPhiDauPid_Mass2VsP_Prod_%s", ch).Data(), pMag, trk.mass2);
+      }
+    } else {
+      if (isPlus) nRejectPlus++;
+      else nRejectMinus++;
+      m_histManager->Fill(TString::Format("hPhiDauPid_TofMatchVsP_Reject_%s", ch).Data(), pMag,
+                          trk.tofMatch ? 1.0 : 0.0);
+      m_histManager->Fill(TString::Format("hPhiDauPid_Category_Reject_%s", ch).Data(), cat);
+    }
+  };
+
+  for (size_t i = 0; i < kaonsPlus.size(); ++i) fillOne(kaonsPlus[i], kTRUE);
+  for (size_t i = 0; i < kaonsMinus.size(); ++i) fillOne(kaonsMinus[i], kFALSE);
+
+  m_histManager->Fill("hPhiDauPid_NLoose_Kp", (Double_t)kaonsPlus.size());
+  m_histManager->Fill("hPhiDauPid_NLoose_Km", (Double_t)kaonsMinus.size());
+  m_histManager->Fill("hPhiDauPid_NProd_Kp", (Double_t)nProdPlus);
+  m_histManager->Fill("hPhiDauPid_NProd_Km", (Double_t)nProdMinus);
+  m_histManager->Fill("hPhiDauPid_NReject_Kp", (Double_t)nRejectPlus);
+  m_histManager->Fill("hPhiDauPid_NReject_Km", (Double_t)nRejectMinus);
+}
+
+void StFemtoMaker::FillUsedPhiDaughterPidQa(const char* source, Bool_t isPlus, Float_t pMag, Bool_t tofMatch,
+                                           Float_t mass2) {
+  if (!m_histManager || !source) return;
+  const char* ch = isPlus ? "Kp" : "Km";
+  TString tofKey = TString::Format("hPhiDauPidUsed_TofMatchVsP_%s_%s", source, ch);
+  if (!m_histManager->Get(tofKey.Data())) return;
+  TString m2Key = TString::Format("hPhiDauPidUsed_Mass2VsP_%s_%s", source, ch);
+  m_histManager->Fill(tofKey.Data(), pMag, tofMatch ? 1.0 : 0.0);
+  if (tofMatch) m_histManager->Fill(m2Key.Data(), pMag, mass2);
 }
 
 void StFemtoMaker::FillCentralityEventQA(Int_t cent9, Int_t rawMult, Double_t refMultCorr, Int_t nTracks,

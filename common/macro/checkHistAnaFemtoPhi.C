@@ -100,37 +100,6 @@ static Bool_t isKuboGenuineEnabled() {
   return ConfigManager::GetInstance().GetFemtoConfig().enableKuboGenuine;
 }
 
-static void drawMixSamplerQaPage(TCanvas* canvas, TH2* hist) {
-  if (!canvas || !hist) return;
-  static const char* statusLabels[] = {
-      "attempted",       "eligible",       "filled",          "skipped",       "skipped_cap",
-      "skipped_paircut", "eligible_bufdir", "empty_bufdir",    "selected_empty", "filled_forward",
-      "filled_reverse",   "eligible_forward", "eligible_reverse", "skip_overlap",   "skip_signal"};
-  const Int_t nStatus = sizeof(statusLabels) / sizeof(statusLabels[0]);
-  for (Int_t ib = 0; ib < nStatus; ++ib) hist->GetXaxis()->SetBinLabel(ib + 1, statusLabels[ib]);
-
-  if (gConfigLoaded) {
-    const std::vector<FemtoConfig::ChannelDef>& channels =
-        ConfigManager::GetInstance().GetFemtoConfig().channels;
-    for (size_t ic = 0; ic < channels.size() && ic < (size_t)hist->GetNbinsY(); ++ic) {
-      hist->GetYaxis()->SetBinLabel((Int_t)ic + 1, channels[ic].name.c_str());
-    }
-    if (!channels.empty()) hist->GetYaxis()->SetRange(1, (Int_t)channels.size());
-  }
-
-  canvas->Clear();
-  canvas->SetCanvasSize(1800, 1100);
-  canvas->cd();
-  gPad->SetLeftMargin(0.18);
-  gPad->SetRightMargin(0.16);
-  gPad->SetBottomMargin(0.18);
-  gPad->SetLogz();
-  hist->SetStats(kFALSE);
-  hist->SetTitle("eligible-pair mixing counters;status;maker channel");
-  hist->GetXaxis()->LabelsOption("v");
-  hist->Draw("colz");
-}
-
 static void setBachelorMass2AxisRange(TH1* h, Double_t ymax = 16.0) {
   if (!h) return;
   if (h->InheritsFrom("TH2")) {
@@ -5249,6 +5218,9 @@ void checkHistAnaFemtoPhi(const Char_t* inputRootFile,
                  fc.purityDirectFitMassMax, fc.purityDirectKstarBinWidth, fc.cfDirectWriteSidecar ? "true" : "false");
   }
   note += "Re-run analysis after hist/Maker changes so new keys exist in the ROOT file.\n";
+  note += "Phi-daughter production PID is charge-independent (PassPhiDaughterTofPid): "
+          "low p allows TPC-only, high p requires TOF. Loose QA remains TPC-based. "
+          "hPhiDauPid_* and hPhiDauPidUsed_{real,rot,mix}_* compare K+/K- and real/ROT/MIX.\n";
 
   std::map<std::string, TGraphErrors*> cfCache;
   std::map<std::string, Double_t> purityCache;
@@ -5760,6 +5732,40 @@ void checkHistAnaFemtoPhi(const Char_t* inputRootFile,
   c1->cd(9); gPad->SetLogz(); h2 = (TH2*)fin->Get("hNSigmaProtonVsPt_Pos"); if (h2) h2->Draw("colz");
   c1->Print(pdfName);
 
+  // Page 10pid: unified phi-daughter PID (loose vs production, K+/K-, real/ROT/MIX)
+  c1->Clear();
+  c1->Divide(3, 3);
+  c1->cd(1); h1 = (TH1*)fin->Get("hPhiDauPid_NLoose_Kp"); if (h1) h1->Draw();
+  c1->cd(2); h1 = (TH1*)fin->Get("hPhiDauPid_NProd_Kp"); if (h1) h1->Draw();
+  c1->cd(3); h1 = (TH1*)fin->Get("hPhiDauPid_NReject_Kp"); if (h1) h1->Draw();
+  c1->cd(4); h1 = (TH1*)fin->Get("hPhiDauPid_NLoose_Km"); if (h1) h1->Draw();
+  c1->cd(5); h1 = (TH1*)fin->Get("hPhiDauPid_NProd_Km"); if (h1) h1->Draw();
+  c1->cd(6); h1 = (TH1*)fin->Get("hPhiDauPid_NReject_Km"); if (h1) h1->Draw();
+  c1->cd(7); h1 = (TH1*)fin->Get("hPhiDauPid_Category_Prod_Kp"); if (h1) h1->Draw();
+  c1->cd(8); h1 = (TH1*)fin->Get("hPhiDauPid_Category_Prod_Km"); if (h1) h1->Draw();
+  c1->cd(9); h1 = (TH1*)fin->Get("hPhiDauPid_Category_Reject_Km"); if (h1) h1->Draw();
+  c1->Print(pdfName);
+
+  c1->Clear();
+  c1->Divide(3, 2);
+  c1->cd(1); gPad->SetLogz(); h2 = (TH2*)fin->Get("hPhiDauPid_TofMatchVsP_Loose_Kp"); if (h2) h2->Draw("colz");
+  c1->cd(2); gPad->SetLogz(); h2 = (TH2*)fin->Get("hPhiDauPid_TofMatchVsP_Prod_Kp"); if (h2) h2->Draw("colz");
+  c1->cd(3); gPad->SetLogz(); h2 = (TH2*)fin->Get("hPhiDauPid_TofMatchVsP_Reject_Kp"); if (h2) h2->Draw("colz");
+  c1->cd(4); gPad->SetLogz(); h2 = (TH2*)fin->Get("hPhiDauPid_TofMatchVsP_Loose_Km"); if (h2) h2->Draw("colz");
+  c1->cd(5); gPad->SetLogz(); h2 = (TH2*)fin->Get("hPhiDauPid_TofMatchVsP_Prod_Km"); if (h2) h2->Draw("colz");
+  c1->cd(6); gPad->SetLogz(); h2 = (TH2*)fin->Get("hPhiDauPid_TofMatchVsP_Reject_Km"); if (h2) h2->Draw("colz");
+  c1->Print(pdfName);
+
+  c1->Clear();
+  c1->Divide(3, 2);
+  c1->cd(1); gPad->SetLogz(); h2 = (TH2*)fin->Get("hPhiDauPidUsed_TofMatchVsP_real_Kp"); if (h2) h2->Draw("colz");
+  c1->cd(2); gPad->SetLogz(); h2 = (TH2*)fin->Get("hPhiDauPidUsed_TofMatchVsP_rot_Kp"); if (h2) h2->Draw("colz");
+  c1->cd(3); gPad->SetLogz(); h2 = (TH2*)fin->Get("hPhiDauPidUsed_TofMatchVsP_mix_Kp"); if (h2) h2->Draw("colz");
+  c1->cd(4); gPad->SetLogz(); h2 = (TH2*)fin->Get("hPhiDauPidUsed_TofMatchVsP_real_Km"); if (h2) h2->Draw("colz");
+  c1->cd(5); gPad->SetLogz(); h2 = (TH2*)fin->Get("hPhiDauPidUsed_TofMatchVsP_rot_Km"); if (h2) h2->Draw("colz");
+  c1->cd(6); gPad->SetLogz(); h2 = (TH2*)fin->Get("hPhiDauPidUsed_TofMatchVsP_mix_Km"); if (h2) h2->Draw("colz");
+  c1->Print(pdfName);
+
   // Page 10b: K- femto candidate QA (used when kaon-minus species is enabled)
   c1->Clear();
   c1->Divide(3, 2);
@@ -5918,14 +5924,6 @@ void checkHistAnaFemtoPhi(const Char_t* inputRootFile,
       h2->Draw("colz");
     }
     c1->Print(pdfName);
-  }
-
-  // Eligible-pair QA: print only when a mixing mode produced counters.
-  h2 = (TH2*)fin->Get("hMixSamplerQA");
-  if (h2 && h2->GetEntries() > 0) {
-    drawMixSamplerQaPage(c1, h2);
-    c1->Print(pdfName);
-    c1->SetCanvasSize(1200, 800);
   }
 
   // Page 15+: Femto k* legacy integrated CF (one page per channel base)
@@ -6229,7 +6227,6 @@ void checkHistAnaFemtoPhi(const Char_t* inputRootFile,
                            "hMass2ChargeVsP_PhiSignalNear_k1",
                            "hDedxVsP_PhiSignalNear_k03",
                            "hMass2ChargeVsP_PhiSignalNear_k03",
-                           "hMixSamplerQA",
                            0};
     for (Int_t i = 0; keys[i]; ++i) {
       TObject* o = fin->Get(keys[i]);

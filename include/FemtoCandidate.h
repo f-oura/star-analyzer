@@ -22,6 +22,8 @@ struct TrackExtra {
   Float_t nSigmaTriton;
   Float_t nSigmaHe3;
   Float_t mass2;
+  Float_t deltaOneOverBeta;
+  Bool_t tofMatch;
   Float_t dca;
   Short_t nHitsFit;
   Int_t trackIndex;
@@ -34,6 +36,8 @@ struct TrackExtra {
         nSigmaTriton(0.0f),
         nSigmaHe3(0.0f),
         mass2(-999.0f),
+        deltaOneOverBeta(999.0f),
+        tofMatch(kFALSE),
         dca(0.0f),
         nHitsFit(0),
         trackIndex(-1) {}

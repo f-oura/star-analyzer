@@ -121,6 +121,8 @@ class StFemtoMaker : public StMaker {
   void BuildTrackState(TrackState& track, StPicoTrack* pico, StPicoEvent* event, TVector3& pVtx, Int_t index);
   void FillTofInfo(TrackState& track, StPicoTrack* trk, const TVector3& pMom, Int_t btofIndex);
   Bool_t PassTofKaonPid(const TrackState& trk) const;
+  Bool_t PassPhiDaughterTofPid(const TrackState& trk) const;
+  Bool_t PassPhiDaughterTofPid(const FemtoCandidate& cand) const;
   Bool_t PassTofProtonPid(const TrackState& trk) const;
   Bool_t PassFemtoProtonCuts(const TrackState& trk) const;
   Bool_t PassFemtoKaonMinusCuts(const TrackState& trk) const;
@@ -150,6 +152,8 @@ class StFemtoMaker : public StMaker {
   void FillHe3FemtoQa(const TrackState& trk);
   void FillPhiPairKinematicsQa(Double_t invMass, const TVector3& phiMom, Double_t openingAngle, Double_t pairRapidity);
   void FillPhiCandidatePreCutQa(Double_t invMass, Double_t pt, Double_t pairRapidity);
+  void FillPhiDaughterPidTrackQa(const std::vector<TrackState>& kaonsPlus, const std::vector<TrackState>& kaonsMinus);
+  void FillUsedPhiDaughterPidQa(const char* source, Bool_t isPlus, Float_t pMag, Bool_t tofMatch, Float_t mass2);
 
   TVector3 TrackMomentum(const TrackState& trk) const;
   StPhysicalHelixD BuildHelix(const TrackState& trk);
