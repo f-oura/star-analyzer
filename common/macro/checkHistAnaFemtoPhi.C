@@ -100,6 +100,37 @@ static Bool_t isKuboGenuineEnabled() {
   return ConfigManager::GetInstance().GetFemtoConfig().enableKuboGenuine;
 }
 
+static void drawMixSamplerQaPage(TCanvas* canvas, TH2* hist) {
+  if (!canvas || !hist) return;
+  static const char* statusLabels[] = {
+      "attempted",       "eligible",       "filled",          "skipped",       "skipped_cap",
+      "skipped_paircut", "eligible_bufdir", "empty_bufdir",    "selected_empty", "filled_forward",
+      "filled_reverse",   "eligible_forward", "eligible_reverse", "skip_overlap",   "skip_signal"};
+  const Int_t nStatus = sizeof(statusLabels) / sizeof(statusLabels[0]);
+  for (Int_t ib = 0; ib < nStatus; ++ib) hist->GetXaxis()->SetBinLabel(ib + 1, statusLabels[ib]);
+
+  if (gConfigLoaded) {
+    const std::vector<FemtoConfig::ChannelDef>& channels =
+        ConfigManager::GetInstance().GetFemtoConfig().channels;
+    for (size_t ic = 0; ic < channels.size() && ic < (size_t)hist->GetNbinsY(); ++ic) {
+      hist->GetYaxis()->SetBinLabel((Int_t)ic + 1, channels[ic].name.c_str());
+    }
+    if (!channels.empty()) hist->GetYaxis()->SetRange(1, (Int_t)channels.size());
+  }
+
+  canvas->Clear();
+  canvas->SetCanvasSize(1800, 1100);
+  canvas->cd();
+  gPad->SetLeftMargin(0.18);
+  gPad->SetRightMargin(0.16);
+  gPad->SetBottomMargin(0.18);
+  gPad->SetLogz();
+  hist->SetStats(kFALSE);
+  hist->SetTitle("eligible-pair mixing counters;status;maker channel");
+  hist->GetXaxis()->LabelsOption("v");
+  hist->Draw("colz");
+}
+
 static void setBachelorMass2AxisRange(TH1* h, Double_t ymax = 16.0) {
   if (!h) return;
   if (h->InheritsFrom("TH2")) {
@@ -5889,6 +5920,14 @@ void checkHistAnaFemtoPhi(const Char_t* inputRootFile,
     c1->Print(pdfName);
   }
 
+  // Eligible-pair QA: print only when a mixing mode produced counters.
+  h2 = (TH2*)fin->Get("hMixSamplerQA");
+  if (h2 && h2->GetEntries() > 0) {
+    drawMixSamplerQaPage(c1, h2);
+    c1->Print(pdfName);
+    c1->SetCanvasSize(1200, 800);
+  }
+
   // Page 15+: Femto k* legacy integrated CF (one page per channel base)
   for (Int_t ib = 0; ib < kNBachelorQaSpecs; ++ib) {
     const BachelorQaSpec& spec = kBachelorQaSpecs[ib];
@@ -6190,6 +6229,7 @@ void checkHistAnaFemtoPhi(const Char_t* inputRootFile,
                            "hMass2ChargeVsP_PhiSignalNear_k1",
                            "hDedxVsP_PhiSignalNear_k03",
                            "hMass2ChargeVsP_PhiSignalNear_k03",
+                           "hMixSamplerQA",
                            0};
     for (Int_t i = 0; keys[i]; ++i) {
       TObject* o = fin->Get(keys[i]);

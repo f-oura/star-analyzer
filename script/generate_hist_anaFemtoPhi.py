@@ -359,6 +359,18 @@ def main() -> None:
     if "  KstarCoarse: &KstarCoarse\n" not in merged_axes:
         merged_axes = merged_axes.rstrip() + "\n  KstarCoarse: &KstarCoarse\n    nBins: 150\n    min: 0.0\n    max: 3.0\n\n"
 
+    if "  MixSamplerStatus: &MixSamplerStatus\n" not in merged_axes:
+        merged_axes = merged_axes.rstrip() + (
+            "\n  MixSamplerStatus: &MixSamplerStatus\n"
+            "    nBins: 15\n"
+            "    min: -0.5\n"
+            "    max: 14.5\n"
+            "  MixChannel: &MixChannel\n"
+            "    nBins: 64\n"
+            "    min: -0.5\n"
+            "    max: 63.5\n\n"
+        )
+
     if "  DedxNearY: &DedxNearY\n" not in merged_axes:
         merged_axes = merged_axes.rstrip() + "\n" + PHI_NEAR_TRACK_AXES.lstrip("\n")
     if not merged_axes.endswith("\n"):
@@ -375,6 +387,12 @@ def main() -> None:
         common[name] = block
 
     common.update(phi_near_track_pid_blocks())
+    common["hMixSamplerQA"] = """  hMixSamplerQA:
+    type: TH2D
+    xAxis: *MixSamplerStatus
+    yAxis: *MixChannel
+    title: "Eligible-pair mixing QA;status counter;maker channel_N index"
+"""
 
     # Unified bachelor nσ vs p (plan §10.4)
     nsigma_extra = {

@@ -128,16 +128,41 @@ When adding particles or channels, follow these rules and update `FemtoConfig` Y
 ## Event mixing (ME statistics)
 
 - Config: `config/cuts/mixing/mixing_<ana>.yaml` via mainconf `mixing:` key (`MixingConfig`).
-- `mixingMode`: `randomSample` (default) or `bufferAll` (loop all buffer events × all pairs; Zhangwei-like).
-- `maxMixedPairsPerEvent`: cap for **randomSample only** — max ME pairs **per event** (default 500; 0 = unlimited). Ignored by `bufferAll`.
-- `mixBothDirections`: with `bufferAll`, also mix buffer `partA` with current `partB` (and vice versa). The two directions are independent: current `partA` × buffered `partB` does not require current `partB`, and buffered `partA` × current `partB` does not require current `partA`. This preserves valid ME pairs for rare bachelors (t, ³He, ⁴He) even when the current event cannot form an SE pair.
+- Both modes use one eligible candidate-pair population: current A × buffered B plus,
+  when `mixBothDirections` is true, buffered A × current B. The two directions are
+  independent, so a missing current B does not suppress forward mixing and a missing
+  current A does not suppress reverse mixing. Empty buffer-side candidate collections
+  never enter the eligible population.
+- `mixingMode`:
+  - `randomSample` (default): uniformly sample without replacement from the eligible
+    population, up to `maxMixedPairsPerEvent`.
+  - `bufferAll`: exhaust the same eligible population (Zhangwei-like) and ignore
+    `maxMixedPairsPerEvent`.
+- P0-2 intentionally corrects the old `randomSample` behavior. The old implementation
+  required both current A and B, derived its attempt count from the same-event
+  multiplicities, sampled buffer events uniformly, and discarded draws with empty
+  buffered B; it is no longer available as a physics mode.
+- `maxMixedPairsPerEvent`: maximum attempted pairs per current event and channel for
+  `randomSample` (default 500; 0 = unlimited).
+- Weighting: every candidate-pair instance has equal inclusion probability in
+  `randomSample`; `bufferAll` includes each once. A buffer event therefore contributes
+  in proportion to its candidate-pair multiplicity, rather than receiving equal event
+  weight. No additional multiplicity or event weight is applied. With a finite cap, a
+  current event contributes `min(N_eligible, maxMixedPairsPerEvent)` attempts. Later CF
+  normalization can absorb total ME scale but not a multiplicity-correlated shape change.
+- QA: `hMixSamplerQA` is a channel-indexed counter matrix. Its status bins verify
+  `eligible = attempted + skipped_by_cap`, `attempted = filled + skipped_by_pair_cut`,
+  and `skipped = eligible - filled`. `selected_empty_buffer_direction` must remain zero;
+  forward/reverse eligible and filled counts diagnose the two directions separately.
+  These counters are raw counts; centrality/event weights are not applied.
 - **Mixing bin:** `GetMixingBin(vz, cent9, psi2)` uses Vz bin × **cent9 as bin index** × EP bin. ME pairs only **different events** in the same bin (never same-event pairs; those are SE).
 - **Shared-track provenance:** each resonance daughter is stored as `(eventIndex, trackIndex)`. Real and rotated φ
   daughters share the current event index; fully mixed φ daughters retain their distinct current/pool event indices.
   Overlap rejection requires both fields to match, so a reused local track index from another event is not rejected.
 - **Centrality slices in checkHist:** `pct_0_10` etc. project cent9 ranges **after** fill; Maker mixing stays at cent9 resolution.
 - Changing mixing requires a **new batch run**; cent-slice CF projection uses existing `hKstar*VsCent_*` in merge ROOT.
-- **Rollout:** benchmark `bufferAll` on a short joblist before full catalog; check high-k* `C→1`, ME shape, job time, merge ROOT size.
+- **Rollout:** compare `randomSample` and `bufferAll` on a short joblist before full catalog; check high-k* `C→1`, ME shape, job time, merge ROOT size.
+- Production mainconfs keep the `randomSample` mode name and receive its corrected semantics.
 
 ## QA PDF pre/post layout (`checkHistAnaFemtoPhiProton.C`)
 

@@ -207,7 +207,8 @@ class StFemtoMaker : public StMaker {
 
   Int_t GetMixingBin(Float_t vz, Int_t cent9, Double_t psi2) const;
   void FillSameEventPairs(const FemtoConfig::ChannelDef& ch);
-  void FillMixedEventPairs(const FemtoConfig::ChannelDef& ch, Float_t vz, Int_t cent9, Double_t psi2);
+  void FillMixedEventPairs(const FemtoConfig::ChannelDef& ch, Int_t channelIndex, Float_t vz, Int_t cent9,
+                           Double_t psi2);
   // Kubo-rule 3-body background: h + SE-K(one charge) + ME-K(other charge), plus a fully-mixed
   // reference; k* is k*(h, KK) with M_KK inside the phi_<h>_signal mass window. Gated by enableKuboTriplet.
   void FillKuboTripletBackground(const std::string& hadronSpecies, const std::string& baseName, Float_t vz,

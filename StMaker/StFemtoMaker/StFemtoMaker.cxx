@@ -1,6 +1,7 @@
 #include "StFemtoMaker.h"
 #include "ConfigManager.h"
 #include "HistManager.h"
+#include "FemtoMixingSampler.h"
 #include "kinematics.h"
 #include "cuts/EventCutConfig.h"
 #include "cuts/TrackCutConfig.h"
@@ -605,7 +606,7 @@ Int_t StFemtoMaker::Make() {
     const FemtoConfig::ChannelDef& ch = femtoCfg.channels[ic];
     if (!ch.enabled) continue;
     FillSameEventPairs(ch);
-    if (ch.doMixing) FillMixedEventPairs(ch, vz, m_cent9, m_psi2);
+    if (ch.doMixing) FillMixedEventPairs(ch, (Int_t)ic, vz, m_cent9, m_psi2);
   }
 
   // Kubo-rule 3-body combinatorial background (h-phi via h-(KK)); uses the mixing pool BEFORE the
@@ -2074,7 +2075,8 @@ Int_t StFemtoMaker::GetMixingBin(Float_t vz, Int_t cent9, Double_t psi2) const {
   return vzBin + mix.nVzBins * (centBin + mix.nCentralityBins * epBin);
 }
 
-void StFemtoMaker::FillMixedEventPairs(const FemtoConfig::ChannelDef& ch, Float_t vz, Int_t cent9, Double_t psi2) {
+void StFemtoMaker::FillMixedEventPairs(const FemtoConfig::ChannelDef& ch, Int_t channelIndex, Float_t vz,
+                                       Int_t cent9, Double_t psi2) {
   FemtoCandidateStore::const_iterator itA = m_eventCandidates.find(ch.partA);
   FemtoCandidateStore::const_iterator itB = m_eventCandidates.find(ch.partB);
   const Bool_t hasCurrentA = (itA != m_eventCandidates.end() && !itA->second.empty());
@@ -2085,16 +2087,9 @@ void StFemtoMaker::FillMixedEventPairs(const FemtoConfig::ChannelDef& ch, Float_
   if (poolIt == m_mixingPool.end() || poolIt->second.empty()) return;
 
   const MixingConfig& mix = ConfigManager::GetInstance().GetMixingConfig();
-  // bufferAll directions are independent: current A x buffered B needs only
-  // current A, while buffered A x current B needs only current B. Requiring
-  // both current species drops valid ME pairs for rare bachelors.
-  if (mix.IsBufferAllMode()) {
-    if (!hasCurrentA && (!mix.mixBothDirections || !hasCurrentB)) return;
-  } else {
-    // Preserve legacy randomSample pair-count semantics (current A x current B
-    // determines the number of sampled current A x buffered B pairs).
-    if (!hasCurrentA || !hasCurrentB) return;
-  }
+  // Both modes use the same eligible-pair population. Forward mixing requires
+  // only current A; reverse mixing independently requires only current B.
+  if (!hasCurrentA && (!mix.mixBothDirections || !hasCurrentB)) return;
 
   std::string hName = HistName("hKstarME", ch.name);
   std::string h2dName = HistName("hKstarMEVsCent", ch.name);
@@ -2102,8 +2097,14 @@ void StFemtoMaker::FillMixedEventPairs(const FemtoConfig::ChannelDef& ch, Float_
   const std::string hMkkWide = wideCh.empty() ? "" : HistName("hPhiMKK_vs_KstarME", wideCh);
   const Double_t centX = (m_cent9 >= 0) ? (Double_t)m_cent9 : -0.5;
 
+  enum MixedPairFillResult {
+    kMixedPairFilled,
+    kMixedPairSkippedOverlap,
+    kMixedPairSkippedSignalWindow
+  };
+
   auto fillMixedPair = [&](const FemtoCandidate& a, const FemtoCandidate& b) {
-    if (TracksOverlap(a, b)) return;
+    if (TracksOverlap(a, b)) return kMixedPairSkippedOverlap;
     Double_t kstar = ComputeKStar(CandidateP4(a), CandidateP4(b));
     if (m_histManager && a.source == kFemtoCandResonance && !hMkkWide.empty()) {
       if (m_histManager->Get(hMkkWide.c_str())) {
@@ -2111,7 +2112,7 @@ void StFemtoMaker::FillMixedEventPairs(const FemtoConfig::ChannelDef& ch, Float_
       }
     }
     if (a.source == kFemtoCandResonance) {
-      if (a.reso.invMass < ch.signalMin || a.reso.invMass > ch.signalMax) return;
+      if (a.reso.invMass < ch.signalMin || a.reso.invMass > ch.signalMax) return kMixedPairSkippedSignalWindow;
     }
     if (m_histManager) {
       m_histManager->Fill(hName.c_str(), kstar);
@@ -2125,54 +2126,116 @@ void StFemtoMaker::FillMixedEventPairs(const FemtoConfig::ChannelDef& ch, Float_
         }
       }
     }
+    return kMixedPairFilled;
   };
 
-  if (mix.IsBufferAllMode()) {
+  {
+    typedef femto_mixing::PairCount PairCount;
     const std::deque<FemtoMixingEvent>& pool = poolIt->second;
+    std::vector<femto_mixing::EventCandidateCounts> bufferedCounts;
+    bufferedCounts.reserve(pool.size());
     for (size_t ie = 0; ie < pool.size(); ++ie) {
-      const FemtoMixingEvent& mixEvt = pool[ie];
-      FemtoCandidateStore::const_iterator mixB = mixEvt.candidates.find(ch.partB);
-      if (hasCurrentA && mixB != mixEvt.candidates.end()) {
-        const std::vector<FemtoCandidate>& bufB = mixB->second;
-        const std::vector<FemtoCandidate>& candsA = itA->second;
-        for (size_t ia = 0; ia < candsA.size(); ++ia) {
-          for (size_t ib = 0; ib < bufB.size(); ++ib) {
-            fillMixedPair(candsA[ia], bufB[ib]);
-          }
-        }
-      }
-      if (mix.mixBothDirections && hasCurrentB) {
-        FemtoCandidateStore::const_iterator mixA = mixEvt.candidates.find(ch.partA);
-        if (mixA != mixEvt.candidates.end()) {
-          const std::vector<FemtoCandidate>& bufA = mixA->second;
-          const std::vector<FemtoCandidate>& candsB = itB->second;
-          for (size_t ia = 0; ia < bufA.size(); ++ia) {
-            for (size_t ib = 0; ib < candsB.size(); ++ib) {
-              fillMixedPair(bufA[ia], candsB[ib]);
-            }
-          }
-        }
-      }
+      size_t nA = 0;
+      size_t nB = 0;
+      FemtoCandidateStore::const_iterator mixA = pool[ie].candidates.find(ch.partA);
+      FemtoCandidateStore::const_iterator mixB = pool[ie].candidates.find(ch.partB);
+      if (mixA != pool[ie].candidates.end()) nA = mixA->second.size();
+      if (mixB != pool[ie].candidates.end()) nB = mixB->second.size();
+      bufferedCounts.push_back(femto_mixing::EventCandidateCounts(nA, nB));
     }
+
+    const size_t nCurrentA = hasCurrentA ? itA->second.size() : 0;
+    const size_t nCurrentB = hasCurrentB ? itB->second.size() : 0;
+    const femto_mixing::SamplingPlan plan =
+        femto_mixing::BuildSamplingPlan(nCurrentA, nCurrentB, bufferedCounts, mix.mixBothDirections);
+    const PairCount maxPairs =
+        mix.maxMixedPairsPerEvent > 0 ? static_cast<PairCount>(mix.maxMixedPairsPerEvent) : 0;
+    const PairCount attempted =
+        femto_mixing::PlannedAttemptCount(plan.eligiblePairs, maxPairs, !mix.IsBufferAllMode());
+
+    PairCount filled = 0;
+    PairCount filledForward = 0;
+    PairCount filledReverse = 0;
+    PairCount skippedOverlap = 0;
+    PairCount skippedSignalWindow = 0;
+    PairCount selectedEmptyBufferDirections = 0;
+
+    auto processFlatIndex = [&](PairCount flatIndex) {
+      femto_mixing::PairReference ref;
+      if (!femto_mixing::ResolvePairReference(plan, flatIndex, ref) || ref.poolEventIndex >= pool.size()) {
+        ++selectedEmptyBufferDirections;
+        return;
+      }
+      const FemtoMixingEvent& mixEvt = pool[ref.poolEventIndex];
+      MixedPairFillResult result = kMixedPairSkippedOverlap;
+      if (ref.reverse) {
+        FemtoCandidateStore::const_iterator mixA = mixEvt.candidates.find(ch.partA);
+        if (!hasCurrentB || mixA == mixEvt.candidates.end() || mixA->second.empty() ||
+            ref.firstIndex >= mixA->second.size() || ref.secondIndex >= itB->second.size()) {
+          ++selectedEmptyBufferDirections;
+          return;
+        }
+        result = fillMixedPair(mixA->second[ref.firstIndex], itB->second[ref.secondIndex]);
+      } else {
+        FemtoCandidateStore::const_iterator mixB = mixEvt.candidates.find(ch.partB);
+        if (!hasCurrentA || mixB == mixEvt.candidates.end() || mixB->second.empty() ||
+            ref.firstIndex >= itA->second.size() || ref.secondIndex >= mixB->second.size()) {
+          ++selectedEmptyBufferDirections;
+          return;
+        }
+        result = fillMixedPair(itA->second[ref.firstIndex], mixB->second[ref.secondIndex]);
+      }
+      if (result == kMixedPairFilled) {
+        ++filled;
+        if (ref.reverse) {
+          ++filledReverse;
+        } else {
+          ++filledForward;
+        }
+      } else if (result == kMixedPairSkippedOverlap) {
+        ++skippedOverlap;
+      } else {
+        ++skippedSignalWindow;
+      }
+    };
+
+    if (attempted == plan.eligiblePairs) {
+      for (PairCount flatIndex = 0; flatIndex < attempted; ++flatIndex) processFlatIndex(flatIndex);
+    } else {
+      const std::vector<PairCount> sampled = femto_mixing::SampleWithoutReplacement(
+          plan.eligiblePairs, attempted, [&](PairCount maxInclusive) {
+            const Double_t upper = static_cast<Double_t>(maxInclusive) + 1.0;
+            PairCount selected = static_cast<PairCount>(gRandom->Uniform(0.0, upper));
+            if (selected > maxInclusive) selected = maxInclusive;
+            return selected;
+          });
+      for (size_t is = 0; is < sampled.size(); ++is) processFlatIndex(sampled[is]);
+    }
+
+    const PairCount skippedByCap = plan.eligiblePairs - attempted;
+    const PairCount skippedByPairCut = skippedOverlap + skippedSignalWindow + selectedEmptyBufferDirections;
+    const PairCount skipped = plan.eligiblePairs - filled;
+    auto fillSamplerQa = [&](femto_mixing::SamplerQaBin bin, PairCount count) {
+      if (m_histManager && count > 0) {
+        m_histManager->Fill2DWeighted("hMixSamplerQA", (Double_t)bin, (Double_t)channelIndex, (Double_t)count);
+      }
+    };
+    fillSamplerQa(femto_mixing::kQaAttempted, attempted);
+    fillSamplerQa(femto_mixing::kQaEligible, plan.eligiblePairs);
+    fillSamplerQa(femto_mixing::kQaFilled, filled);
+    fillSamplerQa(femto_mixing::kQaSkipped, skipped);
+    fillSamplerQa(femto_mixing::kQaSkippedByCap, skippedByCap);
+    fillSamplerQa(femto_mixing::kQaSkippedByPairCut, skippedByPairCut);
+    fillSamplerQa(femto_mixing::kQaEligibleBufferDirections, plan.eligibleBufferDirections);
+    fillSamplerQa(femto_mixing::kQaEmptyBufferDirections, plan.emptyBufferDirections);
+    fillSamplerQa(femto_mixing::kQaSelectedEmptyBufferDirections, selectedEmptyBufferDirections);
+    fillSamplerQa(femto_mixing::kQaFilledForward, filledForward);
+    fillSamplerQa(femto_mixing::kQaFilledReverse, filledReverse);
+    fillSamplerQa(femto_mixing::kQaEligibleForward, plan.eligibleForwardPairs);
+    fillSamplerQa(femto_mixing::kQaEligibleReverse, plan.eligibleReversePairs);
+    fillSamplerQa(femto_mixing::kQaSkippedOverlap, skippedOverlap);
+    fillSamplerQa(femto_mixing::kQaSkippedSignalWindow, skippedSignalWindow);
     return;
-  }
-
-  const std::vector<FemtoCandidate>& candsA = itA->second;
-  const std::vector<FemtoCandidate>& candsB = itB->second;
-  Int_t nPairs = (Int_t)candsA.size() * (Int_t)candsB.size();
-  if (mix.maxMixedPairsPerEvent > 0 && nPairs > mix.maxMixedPairsPerEvent) {
-    nPairs = mix.maxMixedPairsPerEvent;
-  }
-  if (nPairs < 1) nPairs = 1;
-
-  for (Int_t ip = 0; ip < nPairs; ip++) {
-    const FemtoMixingEvent& mixEvt = poolIt->second[(Int_t)gRandom->Uniform(0, poolIt->second.size())];
-    FemtoCandidateStore::const_iterator mixB = mixEvt.candidates.find(ch.partB);
-    if (mixB == mixEvt.candidates.end() || mixB->second.empty()) continue;
-
-    const FemtoCandidate& a = candsA[(Int_t)gRandom->Uniform(0, candsA.size())];
-    const FemtoCandidate& b = mixB->second[(Int_t)gRandom->Uniform(0, mixB->second.size())];
-    fillMixedPair(a, b);
   }
 }
 

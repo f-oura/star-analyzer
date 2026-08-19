@@ -29,6 +29,7 @@ log
 err
 output
 share
+tests
 
 # femto fit shared libs (built locally)
 common/macro/etc/libFemtoFit.so
