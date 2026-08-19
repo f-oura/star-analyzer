@@ -2071,7 +2071,7 @@ std::string StFemtoMaker::HistName(const std::string& prefix, const std::string&
   return prefix + "_" + channelName;
 }
 
-// Method 3 / ROT / MIX full-mass TH3 suffixes:
+// ROT / MIX full-mass TH3 suffixes for kstarMassFitCF background templates:
 //   phi_proton_signal -> phi_proton_wide
 //   phi_rot_proton    -> phi_rot_proton_wide
 //   phi_mix_proton    -> phi_mix_proton_wide

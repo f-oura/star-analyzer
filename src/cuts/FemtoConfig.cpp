@@ -204,22 +204,25 @@ void FemtoConfig::SetDefaults() {
   purityClampMax = 1.0;
   cfBkgMode = "me_mass";
 
-  cfSubtractionMode = "method5";
+  cfSubtractionMode = "none";
   cfSubPurityMode = "fit_slice";
   cfSubPurityFixed = 0.7;
   cfSubSidebandCombine = "sumLR";
-  cfSubWriteSidecarRoot = kTRUE;
+  cfSubWriteSidecarRoot = kFALSE;
   cfSubLowStatsRebinExtra = 1;
 
-  cfDirectPurityMode = "none";
+  kstarMassFitCfEnabled = kTRUE;
+  kstarMassFitCfTemplate = "rot";
+  kstarMassFitCfCrossCheck = kTRUE;
+  kstarMassFitCfFitMassMin = 0.99;
+  kstarMassFitCfFitMassMax = 1.06;
+  kstarMassFitCfKstarBinWidth = 0.050;
+  kstarMassFitCfLowKstarMergeBins = 1;
+  kstarMassFitCfAlphaMassMin = 1.04;
+  kstarMassFitCfAlphaMassMax = 1.06;
+  kstarMassFitCfWriteSidecar = kTRUE;
+  legacyCfPagesEnabled = kFALSE;
   purityDirectFitModel = "gaus_pol2";
-  purityDirectFitMassMin = 0.99;
-  purityDirectFitMassMax = 1.06;
-  purityDirectKstarBinWidth = 0.0;  // native *Kstar width unless set in YAML
-  method3BkgSubLowKstarMergeBins = 1;
-  method3BkgSubAlphaMassMin = 0.0;  // <=0 with max<=min => use left+right SB
-  method3BkgSubAlphaMassMax = 0.0;
-  cfDirectWriteSidecar = kTRUE;
 
   enableHKaonTwoBody = kFALSE;
   enableKuboTriplet = kFALSE;
@@ -552,34 +555,87 @@ void FemtoConfig::ApplyYamlValues(const std::map<std::string, std::string>& valu
   if (values.find("cfSubLowStatsRebinExtra") != values.end()) {
     cfSubLowStatsRebinExtra = YamlParser::ToInt(values.at("cfSubLowStatsRebinExtra"), cfSubLowStatsRebinExtra);
   }
-  if (values.find("cfDirectPurityMode") != values.end()) cfDirectPurityMode = values.at("cfDirectPurityMode");
+
+  auto warnDeprecated = [](const char* oldKey, const char* newKey) {
+    std::cerr << "WARNING: FemtoConfig key '" << oldKey << "' is deprecated; use '" << newKey << "'"
+              << std::endl;
+  };
+
+  if (values.find("kstarMassFitCfEnabled") != values.end()) {
+    kstarMassFitCfEnabled = YamlParser::ToBool(values.at("kstarMassFitCfEnabled"), kstarMassFitCfEnabled);
+  }
+  if (values.find("kstarMassFitCfTemplate") != values.end()) {
+    kstarMassFitCfTemplate = values.at("kstarMassFitCfTemplate");
+  }
+  if (values.find("kstarMassFitCfCrossCheck") != values.end()) {
+    kstarMassFitCfCrossCheck = YamlParser::ToBool(values.at("kstarMassFitCfCrossCheck"), kstarMassFitCfCrossCheck);
+  }
+  if (values.find("kstarMassFitCfFitMassMin") != values.end()) {
+    kstarMassFitCfFitMassMin =
+        YamlParser::ToDouble(values.at("kstarMassFitCfFitMassMin"), kstarMassFitCfFitMassMin);
+  } else if (values.find("purityDirectFitMassMin") != values.end()) {
+    warnDeprecated("purityDirectFitMassMin", "kstarMassFitCfFitMassMin");
+    kstarMassFitCfFitMassMin =
+        YamlParser::ToDouble(values.at("purityDirectFitMassMin"), kstarMassFitCfFitMassMin);
+  }
+  if (values.find("kstarMassFitCfFitMassMax") != values.end()) {
+    kstarMassFitCfFitMassMax =
+        YamlParser::ToDouble(values.at("kstarMassFitCfFitMassMax"), kstarMassFitCfFitMassMax);
+  } else if (values.find("purityDirectFitMassMax") != values.end()) {
+    warnDeprecated("purityDirectFitMassMax", "kstarMassFitCfFitMassMax");
+    kstarMassFitCfFitMassMax =
+        YamlParser::ToDouble(values.at("purityDirectFitMassMax"), kstarMassFitCfFitMassMax);
+  }
+  if (values.find("kstarMassFitCfKstarBinWidth") != values.end()) {
+    kstarMassFitCfKstarBinWidth =
+        YamlParser::ToDouble(values.at("kstarMassFitCfKstarBinWidth"), kstarMassFitCfKstarBinWidth);
+  } else if (values.find("purityDirectKstarBinWidth") != values.end()) {
+    warnDeprecated("purityDirectKstarBinWidth", "kstarMassFitCfKstarBinWidth");
+    kstarMassFitCfKstarBinWidth =
+        YamlParser::ToDouble(values.at("purityDirectKstarBinWidth"), kstarMassFitCfKstarBinWidth);
+  }
+  if (values.find("kstarMassFitCfLowKstarMergeBins") != values.end()) {
+    kstarMassFitCfLowKstarMergeBins =
+        YamlParser::ToInt(values.at("kstarMassFitCfLowKstarMergeBins"), kstarMassFitCfLowKstarMergeBins);
+  } else if (values.find("method3BkgSubLowKstarMergeBins") != values.end()) {
+    warnDeprecated("method3BkgSubLowKstarMergeBins", "kstarMassFitCfLowKstarMergeBins");
+    kstarMassFitCfLowKstarMergeBins =
+        YamlParser::ToInt(values.at("method3BkgSubLowKstarMergeBins"), kstarMassFitCfLowKstarMergeBins);
+  }
+  if (values.find("kstarMassFitCfAlphaMassMin") != values.end()) {
+    kstarMassFitCfAlphaMassMin =
+        YamlParser::ToDouble(values.at("kstarMassFitCfAlphaMassMin"), kstarMassFitCfAlphaMassMin);
+  } else if (values.find("method3BkgSubAlphaMassMin") != values.end()) {
+    warnDeprecated("method3BkgSubAlphaMassMin", "kstarMassFitCfAlphaMassMin");
+    kstarMassFitCfAlphaMassMin =
+        YamlParser::ToDouble(values.at("method3BkgSubAlphaMassMin"), kstarMassFitCfAlphaMassMin);
+  }
+  if (values.find("kstarMassFitCfAlphaMassMax") != values.end()) {
+    kstarMassFitCfAlphaMassMax =
+        YamlParser::ToDouble(values.at("kstarMassFitCfAlphaMassMax"), kstarMassFitCfAlphaMassMax);
+  } else if (values.find("method3BkgSubAlphaMassMax") != values.end()) {
+    warnDeprecated("method3BkgSubAlphaMassMax", "kstarMassFitCfAlphaMassMax");
+    kstarMassFitCfAlphaMassMax =
+        YamlParser::ToDouble(values.at("method3BkgSubAlphaMassMax"), kstarMassFitCfAlphaMassMax);
+  }
+  if (values.find("kstarMassFitCfWriteSidecar") != values.end()) {
+    kstarMassFitCfWriteSidecar =
+        YamlParser::ToBool(values.at("kstarMassFitCfWriteSidecar"), kstarMassFitCfWriteSidecar);
+  } else if (values.find("cfDirectWriteSidecar") != values.end()) {
+    warnDeprecated("cfDirectWriteSidecar", "kstarMassFitCfWriteSidecar");
+    kstarMassFitCfWriteSidecar = YamlParser::ToBool(values.at("cfDirectWriteSidecar"), kstarMassFitCfWriteSidecar);
+  }
+  if (values.find("legacyCfPagesEnabled") != values.end()) {
+    legacyCfPagesEnabled = YamlParser::ToBool(values.at("legacyCfPagesEnabled"), legacyCfPagesEnabled);
+  }
   if (values.find("purityDirectFitModel") != values.end()) {
     purityDirectFitModel = values.at("purityDirectFitModel");
   }
-  if (values.find("purityDirectFitMassMin") != values.end()) {
-    purityDirectFitMassMin = YamlParser::ToDouble(values.at("purityDirectFitMassMin"), purityDirectFitMassMin);
-  }
-  if (values.find("purityDirectFitMassMax") != values.end()) {
-    purityDirectFitMassMax = YamlParser::ToDouble(values.at("purityDirectFitMassMax"), purityDirectFitMassMax);
-  }
-  if (values.find("purityDirectKstarBinWidth") != values.end()) {
-    purityDirectKstarBinWidth =
-        YamlParser::ToDouble(values.at("purityDirectKstarBinWidth"), purityDirectKstarBinWidth);
-  }
-  if (values.find("method3BkgSubLowKstarMergeBins") != values.end()) {
-    method3BkgSubLowKstarMergeBins =
-        YamlParser::ToInt(values.at("method3BkgSubLowKstarMergeBins"), method3BkgSubLowKstarMergeBins);
-  }
-  if (values.find("method3BkgSubAlphaMassMin") != values.end()) {
-    method3BkgSubAlphaMassMin =
-        YamlParser::ToDouble(values.at("method3BkgSubAlphaMassMin"), method3BkgSubAlphaMassMin);
-  }
-  if (values.find("method3BkgSubAlphaMassMax") != values.end()) {
-    method3BkgSubAlphaMassMax =
-        YamlParser::ToDouble(values.at("method3BkgSubAlphaMassMax"), method3BkgSubAlphaMassMax);
-  }
-  if (values.find("cfDirectWriteSidecar") != values.end()) {
-    cfDirectWriteSidecar = YamlParser::ToBool(values.at("cfDirectWriteSidecar"), cfDirectWriteSidecar);
+  if (values.find("cfDirectPurityMode") != values.end()) {
+    warnDeprecated("cfDirectPurityMode", "kstarMassFitCfEnabled");
+    if (values.at("cfDirectPurityMode") == "method3" && values.find("kstarMassFitCfEnabled") == values.end()) {
+      kstarMassFitCfEnabled = kTRUE;
+    }
   }
   if (values.find("enableHKaonTwoBody") != values.end()) {
     enableHKaonTwoBody = YamlParser::ToBool(values.at("enableHKaonTwoBody"), enableHKaonTwoBody);
@@ -847,9 +903,9 @@ Bool_t FemtoConfig::Validate() const {
     std::cerr << "ERROR: FemtoConfig cfSubLowStatsRebinExtra must be >= 1" << std::endl;
     ok = kFALSE;
   }
-  if (cfDirectPurityMode != "none" && cfDirectPurityMode != "method3") {
-    std::cerr << "ERROR: FemtoConfig cfDirectPurityMode must be none|method3 (got " << cfDirectPurityMode << ")"
-              << std::endl;
+  if (kstarMassFitCfTemplate != "rot" && kstarMassFitCfTemplate != "mix") {
+    std::cerr << "ERROR: FemtoConfig kstarMassFitCfTemplate must be rot|mix (got " << kstarMassFitCfTemplate
+              << ")" << std::endl;
     ok = kFALSE;
   }
   if (purityDirectFitModel != "gaus_pol2" && purityDirectFitModel != "gaus_const") {
@@ -857,23 +913,45 @@ Bool_t FemtoConfig::Validate() const {
               << purityDirectFitModel << ")" << std::endl;
     ok = kFALSE;
   }
-  if (purityDirectFitMassMin <= 0.0 || purityDirectFitMassMax <= purityDirectFitMassMin) {
-    std::cerr << "ERROR: FemtoConfig purityDirectFitMassMin/Max invalid" << std::endl;
+  if (kstarMassFitCfFitMassMin <= 0.0 || kstarMassFitCfFitMassMax <= kstarMassFitCfFitMassMin) {
+    std::cerr << "ERROR: FemtoConfig kstarMassFitCfFitMassMin/Max invalid" << std::endl;
     ok = kFALSE;
   }
-  if (purityDirectKstarBinWidth < 0.0) {
-    std::cerr << "ERROR: FemtoConfig purityDirectKstarBinWidth must be >= 0 (got " << purityDirectKstarBinWidth
+  if (kstarMassFitCfEnabled && kstarMassFitCfKstarBinWidth <= 0.0) {
+    std::cerr << "ERROR: FemtoConfig kstarMassFitCfKstarBinWidth must be > 0 when kstarMassFitCfEnabled (got "
+              << kstarMassFitCfKstarBinWidth << ")" << std::endl;
+    ok = kFALSE;
+  }
+  if (kstarMassFitCfKstarBinWidth < 0.0) {
+    std::cerr << "ERROR: FemtoConfig kstarMassFitCfKstarBinWidth must be >= 0 (got " << kstarMassFitCfKstarBinWidth
               << ")" << std::endl;
     ok = kFALSE;
   }
-  if (method3BkgSubLowKstarMergeBins < 1) {
-    std::cerr << "ERROR: FemtoConfig method3BkgSubLowKstarMergeBins must be >= 1 (got "
-              << method3BkgSubLowKstarMergeBins << ")" << std::endl;
+  if (kstarMassFitCfLowKstarMergeBins < 1) {
+    std::cerr << "ERROR: FemtoConfig kstarMassFitCfLowKstarMergeBins must be >= 1 (got "
+              << kstarMassFitCfLowKstarMergeBins << ")" << std::endl;
     ok = kFALSE;
   }
-  if (method3BkgSubAlphaMassMax > method3BkgSubAlphaMassMin && method3BkgSubAlphaMassMin < 0.0) {
-    std::cerr << "ERROR: FemtoConfig method3BkgSubAlphaMassMin must be >= 0 when max>min" << std::endl;
+  if (kstarMassFitCfAlphaMassMax > kstarMassFitCfAlphaMassMin && kstarMassFitCfAlphaMassMin < 0.0) {
+    std::cerr << "ERROR: FemtoConfig kstarMassFitCfAlphaMassMin must be >= 0 when max>min" << std::endl;
     ok = kFALSE;
+  }
+  if (kstarMassFitCfEnabled && kstarMassFitCfAlphaMassMax > kstarMassFitCfAlphaMassMin) {
+    const ChannelDef* chSig = FindChannel("phi_proton_signal");
+    if (chSig) {
+      const Bool_t overlap =
+          !(kstarMassFitCfAlphaMassMax <= chSig->signalMin || kstarMassFitCfAlphaMassMin >= chSig->signalMax);
+      if (overlap) {
+        std::cerr << "ERROR: FemtoConfig kstarMassFitCfAlphaMass window overlaps phi_proton_signal ["
+                  << chSig->signalMin << ", " << chSig->signalMax << "]" << std::endl;
+        ok = kFALSE;
+      }
+    }
+    if (kstarMassFitCfAlphaMassMin < kstarMassFitCfFitMassMax &&
+        kstarMassFitCfAlphaMassMax > kstarMassFitCfFitMassMin) {
+      std::cerr << "WARNING: FemtoConfig kstarMassFitCf alpha window overlaps fit mass range ["
+                << kstarMassFitCfFitMassMin << ", " << kstarMassFitCfFitMassMax << "]" << std::endl;
+    }
   }
   if (enableKuboTriplet &&
       (species.find("phikaon_plus") == species.end() || species.find("phikaon_minus") == species.end())) {

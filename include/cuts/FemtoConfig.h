@@ -148,8 +148,8 @@ class FemtoConfig {
   Int_t rotationSeed;
 
   // Fully-mixed KK phi template (phi_mix species): K+ and K- from distinct pool events.
-  // Used as Method3 mass-background alternative to ROT (SE/ME wide TH3 via channels).
-  // Standard MIX KK (current K x buffer opposite K) for Method3 mass BG template (species phi_mix).
+  // kstarMassFitCF background template alternative to ROT (SE/ME wide TH3 via channels).
+  // Standard MIX KK (current K x buffer opposite K) for mass BG template (species phi_mix).
   Bool_t fullyMixedEnabled;
   std::string fullyMixedSpeciesKey;
   std::string fullyMixedParticleKey;
@@ -183,8 +183,8 @@ class FemtoConfig {
   std::string sidebandAlphaMode;  // fixed | massYieldRatio (future)
   std::string negativeBinPolicy;  // zero | skip
 
-  // k*-binned purity / CF_genuine (checkHist Topic 3).
-  Bool_t purityFitUseConstantBkg;
+  // k* loop range for kstarMassFitCF (and deprecated Topic 3 / direct mass-fit).
+  Bool_t purityFitUseConstantBkg;  // deprecated: Topic 3 / Method 5 only
   Double_t purityFitGaussSigmaMin;
   Double_t purityFitGaussSigmaMax;
   Double_t purityMinKstar;
@@ -192,30 +192,31 @@ class FemtoConfig {
   Int_t purityMinEntriesPerBin;
   Double_t purityClampMin;
   Double_t purityClampMax;
-  std::string cfBkgMode;  // me_mass
+  std::string cfBkgMode;  // deprecated Topic 3: me_mass
 
-  // method 5 CF-subtraction (checkHist): CF_CFsub = [CF_sig - (1-P) CF_SB] / P
-  // with CF_SB from sideband SE/ME (not ME-mass C_bkg). Default mode method5.
+  // Deprecated Method 5 CF-subtraction. Default none; enable only with legacyCfPagesEnabled.
   std::string cfSubtractionMode;      // none | method5
   std::string cfSubPurityMode;        // fixed | fit_slice
-  Double_t cfSubPurityFixed;          // used when cfSubPurityMode=fixed
-  std::string cfSubSidebandCombine;   // sumLR | avgCF_LR (avgCF_LR reserved)
-  Bool_t cfSubWriteSidecarRoot;       // write CFsub graphs to sidecar ROOT
-  Int_t cfSubLowStatsRebinExtra;      // extra rebin for t/he3/he4 slices (1 = none)
+  Double_t cfSubPurityFixed;
+  std::string cfSubSidebandCombine;   // sumLR | avgCF_LR
+  Bool_t cfSubWriteSidecarRoot;
+  Int_t cfSubLowStatsRebinExtra;
 
-  // Method 3 direct purity (checkHist): CF_direct = N_sig_SE / N_sig_ME from
-  // per-k* gaus+pol2 fits on wide M_KK TH3. Distinct from Topic 3 C_genuine and CF-Sub.
-  std::string cfDirectPurityMode;     // none | method3
-  std::string purityDirectFitModel;   // gaus_pol2 | gaus_const
-  Double_t purityDirectFitMassMin;
-  Double_t purityDirectFitMassMax;
-  Double_t purityDirectKstarBinWidth; // Method3 k* rebin target [GeV/c]; <=0 = native (10 MeV)
-  Int_t method3BkgSubLowKstarMergeBins; // merge first N Method3 bkg-sub k* bins (1 = disabled)
-  // Method3 S=F-αB: if alphaMassMax > alphaMassMin, α from this single M_KK window only
-  // (else fall back to leftSB+rightSB channel windows).
-  Double_t method3BkgSubAlphaMassMin;
-  Double_t method3BkgSubAlphaMassMax;
-  Bool_t cfDirectWriteSidecar;        // write Method3 graphs to sidecar ROOT
+  // kstarMassFitCF: per-k* full M_KK, S=F-αB (ROT/MIX template), C = Y_SE/Y_ME.
+  Bool_t kstarMassFitCfEnabled;
+  std::string kstarMassFitCfTemplate;  // rot | mix
+  Bool_t kstarMassFitCfCrossCheck;
+  Double_t kstarMassFitCfFitMassMin;
+  Double_t kstarMassFitCfFitMassMax;
+  Double_t kstarMassFitCfKstarBinWidth;  // [GeV/c]; must be >0 when enabled
+  Int_t kstarMassFitCfLowKstarMergeBins;  // merge first N rebinned k* bins (1 = disabled)
+  Double_t kstarMassFitCfAlphaMassMin;    // α window; max<=min => leftSB+rightSB
+  Double_t kstarMassFitCfAlphaMassMax;
+  Bool_t kstarMassFitCfWriteSidecar;
+
+  // Deprecated: Topic 3 / direct mass-fit / Method 5 pages. Default false.
+  Bool_t legacyCfPagesEnabled;
+  std::string purityDirectFitModel;  // deprecated direct mass-fit: gaus_pol2 | gaus_const
 
   // h-K correlations extension (off by default; existing paths unchanged when false).
   Bool_t enableHKaonTwoBody;  // fill two-body h-K+/- pairs (needs phikaon_plus/minus species + channels)

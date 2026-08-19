@@ -55,27 +55,36 @@ When adding particles or channels, follow these rules and update `FemtoConfig` Y
   - `C_genuine` uncertainties use analytic propagation in `C_meas`, `C_bkg`, and `lambda_sig`; the `lambda_sig` error currently comes from the Gaussian-fit partial derivatives.
 - YAML keys: `purityFitUseConstantBkg`, `purityFitGaussSigmaMin/Max`, `purityMinKstar/Max`, `purityMinEntriesPerBin`, `purityClampMin/Max`, `cfBkgMode`.
 - QA PDF pages: `lambda_sig(k*)` and `C_meas` vs `C_genuine` for `cfCentSlicesQaPdfInclude` slices × all bachelor bases.
-- Requires batch re-run after hist/Maker deploy so TH3 keys exist in merge ROOT.
+- Requires `legacyCfPagesEnabled: true`. Batch re-run after hist/Maker deploy so TH3 keys exist in merge ROOT.
 
-### Method 3: direct purity fitting (`anaFemtoPhi` unified)
+### kstarMassFitCF (`anaFemtoPhi` unified)
 
-- **Distinct from Topic 3 `C_genuine` and from CF-Sub (code `method5`).** No sideband CF.
-- Maker fills additional **wide** TH3 `hPhiMKK_vs_KstarSE/ME_<base>_wide` (full M_KK, no signal-window cut at fill). Existing `_*_signal` TH3 unchanged.
-- checkHist (`checkHistAnaFemtoPhi.C`) when `cfDirectPurityMode: method3`:
-  - Per k* bin: fit SE and ME M_KK separately with gaus+pol2 (fallback gaus+const).
-  - `N_sig` = gaus integral in channel signal window; `P = N_sig/(N_sig+N_bkg)`.
-  - `CF_direct(k*) = N_sig^SE(k*) / N_sig^ME(k*)`.
-  - k* rebin: `purityDirectKstarBinWidth` (GeV/c); `<=0` keeps native `*Kstar` (10 MeV). `auau3p85fxt_anaFemtoPhi` uses **0.050**.
-  - QA: guide page + per slice×base graphs (N_sig, P_true/P_mix, CF_direct) + exemplar mass-fit page (high-stat / low-stat k* × SE/ME).
-  - **ROT/MIX bkg-sub CF** (Method3AllKstar PDF add-on): per k* fit on \(S=F-\alpha B\) with **gaus-only** (no pol); \(C_{\mathrm{raw}}=Y_{\mathrm{SE}}/Y_{\mathrm{ME}}\); \(C_{\mathrm{norm}}\) in channel `normQMin`–`normQMax`. `method3BkgSubLowKstarMergeBins` merges the first N rebinned k* bins before mass projection/subtraction/fit (1 disables it; 2 with 0.050 GeV/c bins gives \(0<k^*<0.1\) GeV/c). If `method3BkgSubAlphaMassMax > method3BkgSubAlphaMassMin`, \(\alpha\) uses that single \(M_{KK}\) window only (e.g. right SB 1.05–1.10); else leftSB+rightSB. Cache keys `CF_method3_bkgsub_{rot|mix}_*`, `CF_method3_bkgsub_norm_*`, `method3_bkgsub_Nsig_{SE|ME}_*`.
-- YAML: `cfDirectPurityMode` (`none|method3`), `purityDirectFitModel` (`gaus_pol2|gaus_const`), `purityDirectFitMassMin/Max`, `purityDirectKstarBinWidth`, `method3BkgSubLowKstarMergeBins`, `method3BkgSubAlphaMassMin/Max`, `cfDirectWriteSidecar`.
-- Sidecar: `share/figure/<anaName>/<anaName>_checkHistAnaFemtoPhi_CFmethod3_<jobid>.root` (includes direct + bkgsub graphs).
-- Unit / toy tests: `tools/test_cf_method3_direct.C`.
+Primary φ–p / φ–d correlation function. Per \(k^*\) bin, fit the full \(M_{KK}\) spectrum after subtracting a scaled ROT or MIX template:
+
+\[
+S = F - \alpha B,\qquad
+\alpha = \frac{\int_{M_\alpha} F\,dM}{\int_{M_\alpha} B\,dM},\qquad
+C_{\mathrm{raw}}(k^*) = \frac{Y_{\mathrm{SE}}(k^*)}{Y_{\mathrm{ME}}(k^*)}.
+\]
+
+\(Y\) is the gaus-only integral of \(S\) in the channel `signalMin`–`signalMax` window. \(C_{\mathrm{norm}}\) scales \(C_{\mathrm{raw}}\) to mean 1 in `normQMin`–`normQMax`.
+
+- **Default background template is ROT** (`kstarMassFitCfTemplate: rot`). MIX is a cross-check (`kstarMassFitCfCrossCheck: true`) because older MIX ROOT files still use a superseded mixing/cap scheme.
+- Maker fills **wide** TH3 `hPhiMKK_vs_KstarSE/ME_<base>_wide` (full \(M_{KK}\), no signal-window cut at fill). ROT/MIX templates use `hPhiMKK_vs_Kstar{SE,ME}_phi_{rot|mix}_{proton,deuteron}_wide`. Histogram names are unchanged.
+- YAML (`kstarMassFitCf*`): `Enabled`, `Template` (`rot|mix`), `CrossCheck`, `FitMassMin/Max`, `KstarBinWidth` (0.050 GeV/\(c\) in `auau3p85fxt_anaFemtoPhi`), `LowKstarMergeBins` (2 → first point covers \(0<k^*<0.1\) GeV/\(c\)), `AlphaMassMin/Max` (1.04–1.06; must not overlap `phi_proton_signal`), `WriteSidecar`.
+- \(\alpha\) window must not overlap the signal window (Validate error). Overlap with the fit range is a warning.
+- Invalid \(k^*\) bins are recorded (`kmf_fitstatus_*`): 0=ok, 1=fit fail, 2=negative yield, 3=low stat, 4=norm fail, 5=non-finite. Failed bins are omitted from \(C_{\mathrm{raw}}\) (no fake zero yield). Negative \(S\) bins are **not** clipped.
+- QA PDF: `share/figure/<anaName>/<anaName>_checkHistAnaFemtoPhi_kstarMassFitCf[_jobid].pdf`. Sidecar: `..._CFkmf[_jobid].root`.
+- Graph names: `CF_kmf_{rot|mix}_{base}_{slice}_{raw|norm}`, `kmf_Y_{SE|ME}_{rot|mix}_{base}_{slice}`, `kmf_fitstatus_{rot|mix}_{base}_{slice}`.
+- Simple SE/ME count ratio in the main QA PDF is diagnostic only.
+- `legacyCfPagesEnabled: false` (default) skips Topic 3, old direct mass-fit, and Method 5 pages.
+- Old names (one-release YAML aliases only): Method3 / Method3AllKstar / `cfDirectPurityMode: method3` / `method3BkgSub*` / `purityDirectFitMass*` / `CF_method3_bkgsub_*` / PDF `..._Method3AllKstar` / sidecar `..._CFmethod3`.
+- Closure toy: `tools/test_cf_kstarmassfit.C`.
 - Hist keys generated by `script/generate_hist_anaFemtoPhi.py` (`WIDE_FEMTO_CHANNELS`).
 
 ### Topic / method 5: sideband CF-subtraction (`anaFemtoPhi` unified)
 
-- **Distinct from Topic 3 `C_genuine`.** Method 5 uses sideband correlation functions, not ME-mass `C_bkg`.
+- **Distinct from kstarMassFitCF and Topic 3 `C_genuine`.** Off unless `legacyCfPagesEnabled`. Method 5 uses sideband correlation functions, not ME-mass `C_bkg`.
 - Formula:
   - `CF_sig = norm(SE_sig / ME_sig)`, `CF_SB = norm(SE_SB / ME_SB)` (SBLR = left+right SE/ME sum by default; no width α).
   - `CF_CFsub = [CF_sig - (1-P) CF_SB] / P` with constant per-slice purity `P` from φ M_KK gaus+const fit (`fit_slice`) or YAML `cfSubPurityFixed`.
@@ -96,8 +105,8 @@ When adding particles or channels, follow these rules and update `FemtoConfig` Y
   - Full-mass TH3 when `kuboStoreFullMass: true`: `hKuboMKK_vs_KstarSEK{p,m}/Mix/KK_<base>` (x=M_KK, y=k*, z=cent9). KK topology = ME hadron + SE K⁺K⁻.
   - Reject counter: `hKuboNRejectShared_<base>`.
 - **ROT full-mass TH3**: `hPhiMKK_vs_Kstar{SE,ME}_phi_rot_{proton,deuteron}_wide` (fill before mass window; channels `phi_rot_proton`, `phi_rot_deuteron`).
-- **MIX full-mass TH3** (standard event-mixed KK: current K×buffer opposite K, psn0585-style): `hPhiMKK_vs_Kstar{SE,ME}_phi_mix_{proton,deuteron}_wide` (channels `phi_mix_proton`, `phi_mix_deuteron`; YAML `fullyMixedEnabled`). Method3AllKstar PDF appends ROT/MIX \(S=F-\alpha B\) mass-fit QA and CF pages from those \(S\) yields.
-- **Old vs Kubo background / genuine CF** (checkHist): from 1D triplets; Method3×Kubo closure pages when both enabled.
+  - MIX full-mass TH3 (standard event-mixed KK: current K×buffer opposite K, psn0585-style): `hPhiMKK_vs_Kstar{SE,ME}_phi_mix_{proton,deuteron}_wide` (channels `phi_mix_proton`, `phi_mix_deuteron`; YAML `fullyMixedEnabled`). kstarMassFitCF uses these as the MIX background template (cross-check; default is ROT).
+  - Old vs Kubo background / genuine CF (checkHist): from 1D triplets; legacy direct-mass-fit × Kubo closure pages when `legacyCfPagesEnabled` and Kubo are both on.
 - **YAML flags**: `enableHKaonTwoBody`, `enableKuboTriplet`, `enableKuboGenuine`, `kuboStoreFullMass` (default false).
 
 ### Phi–bachelor pair momentum angle QA (`anaFemtoPhi` unified)

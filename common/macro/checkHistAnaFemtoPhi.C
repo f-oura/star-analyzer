@@ -13,6 +13,9 @@
 #include <TH3.h>
 #include <TGraphErrors.h>
 #include <TF1.h>
+#include <TFitResult.h>
+#include <TFitResultPtr.h>
+#include <TMatrixDSym.h>
 #include <TLine.h>
 #include <TMath.h>
 #include <TObject.h>
@@ -98,6 +101,16 @@ static Bool_t isKuboTripletEnabled() {
 static Bool_t isKuboGenuineEnabled() {
   if (!gConfigLoaded) return kFALSE;
   return ConfigManager::GetInstance().GetFemtoConfig().enableKuboGenuine;
+}
+
+static Bool_t isKstarMassFitCfEnabled() {
+  if (!gConfigLoaded) return kTRUE;
+  return ConfigManager::GetInstance().GetFemtoConfig().kstarMassFitCfEnabled;
+}
+
+static Bool_t isLegacyCfPagesEnabled() {
+  if (!gConfigLoaded) return kFALSE;
+  return ConfigManager::GetInstance().GetFemtoConfig().legacyCfPagesEnabled;
 }
 
 static void setBachelorMass2AxisRange(TH1* h, Double_t ymax = 16.0) {
@@ -1559,7 +1572,8 @@ static TGraphErrors* computeGenuineCfGraph(TFile* fin, const FemtoConfig::CfCent
 }
 
 static Bool_t isMethod5Enabled() {
-  if (!gConfigLoaded) return kTRUE;
+  if (!gConfigLoaded) return kFALSE;
+  if (!ConfigManager::GetInstance().GetFemtoConfig().legacyCfPagesEnabled) return kFALSE;
   return ConfigManager::GetInstance().GetFemtoConfig().cfSubtractionMode == "method5";
 }
 
@@ -1966,7 +1980,7 @@ static void writeCfSubSidecarRoot(const TString& outDir, const TString& anaName,
                                   const Char_t* inputRootFile, const Char_t* mainconfPath,
                                   std::map<std::string, TGraphErrors*>& cfCache,
                                   const std::map<std::string, Double_t>& purityCache) {
-  if (!isCfSubWriteSidecar()) return;
+  if (!isCfSubWriteSidecar() || !isMethod5Enabled()) return;
 
   TString outPath = outDir + anaName + "_checkHistAnaFemtoPhi_CFsub";
   if (jobid.Length()) outPath += "_" + jobid;
@@ -2093,6 +2107,7 @@ static void populatePurityGenuineCachesForBase(TFile* fin, const std::string& ch
 }
 
 static void populatePurityGenuineCaches(TFile* fin, std::map<std::string, TGraphErrors*>& cfCache) {
+  if (!isLegacyCfPagesEnabled()) return;
   for (Int_t ib = 0; kChannelBases[ib]; ++ib) {
     populatePurityGenuineCachesForBase(fin, std::string(kChannelBases[ib]), cfCache);
   }
@@ -2367,45 +2382,37 @@ static void drawKuboPagesForBase(TCanvas* c1, TFile* fin, const std::string& bas
 }
 
 // ---------------------------------------------------------------------------
-// Method 3: direct purity (gaus+pol2 on wide M_KK TH3; CF_direct = Nsig_SE/Nsig_ME)
-// Distinct from Topic 3 C_genuine and CF-Sub (code name method5).
+// kstarMassFitCF (primary) and deprecated direct mass-fit / Topic 3 / Method 5.
 // ---------------------------------------------------------------------------
 
-static Bool_t isMethod3Enabled() {
-  if (!gConfigLoaded) return kFALSE;
-  return ConfigManager::GetInstance().GetFemtoConfig().cfDirectPurityMode == "method3";
-}
-
-static Bool_t isMethod3WriteSidecar() {
+static Bool_t isKstarMassFitCfWriteSidecar() {
   if (!gConfigLoaded) return kTRUE;
-  return ConfigManager::GetInstance().GetFemtoConfig().cfDirectWriteSidecar;
+  return ConfigManager::GetInstance().GetFemtoConfig().kstarMassFitCfWriteSidecar;
 }
 
-// Target k* bin width [GeV/c] for Method3 RebinY; <=0 keeps native *Kstar (10 MeV).
-static Double_t getMethod3KstarBinTarget() {
-  if (!gConfigLoaded) return 0.0;
-  return ConfigManager::GetInstance().GetFemtoConfig().purityDirectKstarBinWidth;
+static Double_t getKstarMassFitCfKstarBinTarget() {
+  if (!gConfigLoaded) return 0.050;
+  return ConfigManager::GetInstance().GetFemtoConfig().kstarMassFitCfKstarBinWidth;
 }
 
-static Int_t getMethod3BkgSubLowKstarMergeBins() {
+static Int_t getKstarMassFitCfLowKstarMergeBins() {
   if (!gConfigLoaded) return 1;
-  const Int_t n = ConfigManager::GetInstance().GetFemtoConfig().method3BkgSubLowKstarMergeBins;
+  const Int_t n = ConfigManager::GetInstance().GetFemtoConfig().kstarMassFitCfLowKstarMergeBins;
   return (n >= 1) ? n : 1;
 }
 
-// Method3 S=F-αB: if YAML method3BkgSubAlphaMassMax > Min, α from that single M_KK window.
-static Bool_t getMethod3BkgSubAlphaSingleWindow(Double_t& mMin, Double_t& mMax) {
+static Bool_t getKstarMassFitCfAlphaSingleWindow(Double_t& mMin, Double_t& mMax) {
   mMin = 0.0;
   mMax = 0.0;
   if (!gConfigLoaded) return kFALSE;
   const FemtoConfig& fc = ConfigManager::GetInstance().GetFemtoConfig();
-  if (fc.method3BkgSubAlphaMassMax <= fc.method3BkgSubAlphaMassMin) return kFALSE;
-  mMin = fc.method3BkgSubAlphaMassMin;
-  mMax = fc.method3BkgSubAlphaMassMax;
+  if (fc.kstarMassFitCfAlphaMassMax <= fc.kstarMassFitCfAlphaMassMin) return kFALSE;
+  mMin = fc.kstarMassFitCfAlphaMassMin;
+  mMax = fc.kstarMassFitCfAlphaMassMax;
   return kTRUE;
 }
 
-static std::string method3CacheSuffix(Double_t kstarBinTarget) {
+static std::string kmfCacheSuffix(Double_t kstarBinTarget) {
   if (kstarBinTarget <= 0.0) return "_native";
   return Form("_dk%.0f", kstarBinTarget * 1000.0);
 }
@@ -2418,7 +2425,7 @@ static std::string phiMkkVsKstarWideMeKey(const std::string& channelBase) {
   return std::string("hPhiMKK_vs_KstarME_") + channelBase + "_wide";
 }
 
-struct Method3FitResult {
+struct KstarMassFitCfFitResult {
   Bool_t ok;
   Double_t nSig;
   Double_t errNSig;
@@ -2432,7 +2439,7 @@ struct Method3FitResult {
   Double_t polB;
   Double_t polC;
   Bool_t usedPol2;
-  Method3FitResult()
+  KstarMassFitCfFitResult()
       : ok(kFALSE),
         nSig(0.0),
         errNSig(0.0),
@@ -2449,7 +2456,7 @@ struct Method3FitResult {
 };
 
 static Bool_t fitPurityOneModel(TH1* hMass, Double_t fitMin, Double_t fitMax, Double_t sigMin, Double_t sigMax,
-                                Double_t sigmaMin, Double_t sigmaMax, Bool_t usePol2, Method3FitResult& out) {
+                                Double_t sigmaMin, Double_t sigmaMax, Bool_t usePol2, KstarMassFitCfFitResult& out) {
   TString fname = Form("fm3_%lx_%d", (unsigned long)hMass, usePol2 ? 1 : 0);
   TF1* f = 0;
   if (usePol2) {
@@ -2518,8 +2525,8 @@ static Bool_t fitPurityOneModel(TH1* hMass, Double_t fitMin, Double_t fitMax, Do
 }
 
 static Bool_t fitPurityGausPol2OrConst(TH1* hMass, Double_t fitMin, Double_t fitMax, Double_t sigMin, Double_t sigMax,
-                                       Double_t sigmaMin, Double_t sigmaMax, Bool_t preferPol2, Method3FitResult& out) {
-  out = Method3FitResult();
+                                       Double_t sigmaMin, Double_t sigmaMax, Bool_t preferPol2, KstarMassFitCfFitResult& out) {
+  out = KstarMassFitCfFitResult();
   if (!hMass) return kFALSE;
   Int_t binFitLo = hMass->GetXaxis()->FindBin(fitMin + 1e-9);
   Int_t binFitHi = hMass->GetXaxis()->FindBin(fitMax - 1e-9);
@@ -2535,8 +2542,8 @@ static Bool_t fitPurityGausPol2OrConst(TH1* hMass, Double_t fitMin, Double_t fit
 
 // Pure gaussian (no polynomial / const background). Used for S = F-αB where residual BG ~ 0.
 static Bool_t fitPurityGausOnly(TH1* hMass, Double_t fitMin, Double_t fitMax, Double_t sigMin, Double_t sigMax,
-                                Double_t sigmaMin, Double_t sigmaMax, Method3FitResult& out) {
-  out = Method3FitResult();
+                                Double_t sigmaMin, Double_t sigmaMax, KstarMassFitCfFitResult& out) {
+  out = KstarMassFitCfFitResult();
   if (!hMass) return kFALSE;
   Int_t binFitLo = hMass->GetXaxis()->FindBin(fitMin + 1e-9);
   Int_t binFitHi = hMass->GetXaxis()->FindBin(fitMax - 1e-9);
@@ -2550,8 +2557,9 @@ static Bool_t fitPurityGausOnly(TH1* hMass, Double_t fitMin, Double_t fitMax, Do
   f->SetParameter(1, hMass->GetXaxis()->GetBinCenter(maxBin));
   f->SetParameter(2, 0.006);
   f->SetParLimits(2, sigmaMin, sigmaMax);
-  Int_t fitStat = hMass->Fit(f, "RQ0");
-  if (fitStat != 0) {
+  TFitResultPtr rfit = hMass->Fit(f, "RQS0");
+  const Int_t fitStat = (Int_t)rfit;
+  if (fitStat != 0 || rfit.Get() == 0) {
     delete f;
     return kFALSE;
   }
@@ -2571,16 +2579,28 @@ static Bool_t fitPurityGausOnly(TH1* hMass, Double_t fitMin, Double_t fitMax, Do
   out.polB = 0.0;
   out.polC = 0.0;
   out.usedPol2 = kFALSE;
-  const Double_t eA = f->GetParError(0);
-  const Double_t eS = f->GetParError(2);
-  out.errNSig = nSig * TMath::Sqrt(TMath::Power(eA / (f->GetParameter(0) + 1e-12), 2) +
-                                   TMath::Power(eS / (f->GetParameter(2) + 1e-12), 2));
+  Bool_t usedCov = kFALSE;
+  if (rfit->CovMatrixStatus() > 0) {
+    TMatrixDSym cov = rfit->GetCovarianceMatrix();
+    Double_t pars[3] = {f->GetParameter(0), f->GetParameter(1), f->GetParameter(2)};
+    const Double_t errCov = f->IntegralError(sigMin, sigMax, pars, cov.GetMatrixArray());
+    if (TMath::Finite(errCov) && errCov >= 0.0) {
+      out.errNSig = errCov;
+      usedCov = kTRUE;
+    }
+  }
+  if (!usedCov) {
+    const Double_t eA = f->GetParError(0);
+    const Double_t eS = f->GetParError(2);
+    out.errNSig = nSig * TMath::Sqrt(TMath::Power(eA / (f->GetParameter(0) + 1e-12), 2) +
+                                     TMath::Power(eS / (f->GetParameter(2) + 1e-12), 2));
+  }
   out.errPurity = 0.0;
   delete f;
   return kTRUE;
 }
 
-static void getMethod3FitConfig(Double_t& fitMin, Double_t& fitMax, Double_t& sigmaMin, Double_t& sigmaMax,
+static void getKstarMassFitCfFitConfig(Double_t& fitMin, Double_t& fitMax, Double_t& sigmaMin, Double_t& sigmaMax,
                                 Double_t& purityMinK, Double_t& purityMaxK, Int_t& minEntries, Double_t& clampMin,
                                 Double_t& clampMax, Bool_t& preferPol2) {
   fitMin = 0.99;
@@ -2595,8 +2615,8 @@ static void getMethod3FitConfig(Double_t& fitMin, Double_t& fitMax, Double_t& si
   preferPol2 = kTRUE;
   if (!gConfigLoaded) return;
   const FemtoConfig& fc = ConfigManager::GetInstance().GetFemtoConfig();
-  fitMin = fc.purityDirectFitMassMin;
-  fitMax = fc.purityDirectFitMassMax;
+  fitMin = fc.kstarMassFitCfFitMassMin;
+  fitMax = fc.kstarMassFitCfFitMassMax;
   sigmaMin = fc.purityFitGaussSigmaMin;
   sigmaMax = fc.purityFitGaussSigmaMax;
   purityMinK = fc.purityMinKstar;
@@ -2607,31 +2627,31 @@ static void getMethod3FitConfig(Double_t& fitMin, Double_t& fitMax, Double_t& si
   preferPol2 = (fc.purityDirectFitModel == "gaus_pol2");
 }
 
-struct Method3BinRecord {
+struct DirectMassFitBinRecord {
   Int_t iy;
   Double_t kstar;
   Double_t seIntegral;
   Bool_t seOk;
   Bool_t meOk;
-  Method3FitResult seFit;
-  Method3FitResult meFit;
+  KstarMassFitCfFitResult seFit;
+  KstarMassFitCfFitResult meFit;
 };
 
 // k* Rebin factor to reach a target bin width from the histogram's native width.
 // targetWidth <= 0 means no rebin (factor 1).
-static Int_t method3RebinFactorForWidth(Double_t binWidth, Double_t targetWidth) {
+static Int_t kmfRebinFactorForWidth(Double_t binWidth, Double_t targetWidth) {
   if (targetWidth <= 0.0 || binWidth <= 0.0) return 1;
   Int_t f = (Int_t)TMath::Nint(targetWidth / binWidth);
   if (f < 1) f = 1;
   return f;
 }
 
-static void computeMethod3PurityGraphs(TFile* fin, const FemtoConfig::CfCentSlice& slice,
+static void computeDirectMassFitCfGraphs(TFile* fin, const FemtoConfig::CfCentSlice& slice,
                                        const std::string& channelBase, std::map<std::string, TGraphErrors*>& cfCache,
                                        std::map<std::string, Double_t>& metaCache,
-                                       std::vector<Method3BinRecord>* binRecordsOut, Double_t kstarBinTarget = -1.0) {
-  if (kstarBinTarget < 0.0) kstarBinTarget = getMethod3KstarBinTarget();
-  const std::string suf = method3CacheSuffix(kstarBinTarget);
+                                       std::vector<DirectMassFitBinRecord>* binRecordsOut, Double_t kstarBinTarget = -1.0) {
+  if (kstarBinTarget < 0.0) kstarBinTarget = getKstarMassFitCfKstarBinTarget();
+  const std::string suf = kmfCacheSuffix(kstarBinTarget);
   const std::string pTrueKey = cfSliceCacheKey(slice.id, std::string("method3_P_true_") + channelBase + suf);
   const std::string pMixKey = cfSliceCacheKey(slice.id, std::string("method3_P_mix_") + channelBase + suf);
   const std::string nSeKey = cfSliceCacheKey(slice.id, std::string("method3_Nsig_SE_") + channelBase + suf);
@@ -2648,7 +2668,7 @@ static void computeMethod3PurityGraphs(TFile* fin, const FemtoConfig::CfCentSlic
   TH3* h3SE = (TH3*)fin->Get(phiMkkVsKstarWideSeKey(channelBase).c_str());
   TH3* h3ME = (TH3*)fin->Get(phiMkkVsKstarWideMeKey(channelBase).c_str());
   if (!h3SE || !h3ME) {
-    std::cout << "[checkHistAnaFemtoPhi] Method3 " << channelBase << " " << slice.id
+    std::cout << "[checkHistAnaFemtoPhi] direct-mass-fit " << channelBase << " " << slice.id
               << ": missing wide TH3 (needs Maker re-run with hPhiMKK_vs_Kstar*_wide)\n";
     cfCache[cfKey] = 0;
     cfCache[pTrueKey] = 0;
@@ -2667,7 +2687,7 @@ static void computeMethod3PurityGraphs(TFile* fin, const FemtoConfig::CfCentSlic
     return;
   }
 
-  const Int_t kRebin = method3RebinFactorForWidth(h2SE->GetYaxis()->GetBinWidth(1), kstarBinTarget);
+  const Int_t kRebin = kmfRebinFactorForWidth(h2SE->GetYaxis()->GetBinWidth(1), kstarBinTarget);
   if (kRebin > 1) {
     h2SE = (TH2*)h2SE->RebinY(kRebin);
     h2ME = (TH2*)h2ME->RebinY(kRebin);
@@ -2677,7 +2697,7 @@ static void computeMethod3PurityGraphs(TFile* fin, const FemtoConfig::CfCentSlic
   Double_t purityMinK = 0.0, purityMaxK = 0.65, clampMin = 0.05, clampMax = 1.0;
   Int_t minEntries = 20;
   Bool_t preferPol2 = kTRUE;
-  getMethod3FitConfig(fitMin, fitMax, sigmaMin, sigmaMax, purityMinK, purityMaxK, minEntries, clampMin, clampMax,
+  getKstarMassFitCfFitConfig(fitMin, fitMax, sigmaMin, sigmaMax, purityMinK, purityMaxK, minEntries, clampMin, clampMax,
                       preferPol2);
 
   const std::string chSig = channelSignal(channelBase);
@@ -2686,7 +2706,7 @@ static void computeMethod3PurityGraphs(TFile* fin, const FemtoConfig::CfCentSlic
 
   std::vector<Double_t> kx, pyT, eyT, pyM, eyM, nSe, eSe, nMe, eMe, cfx, cfy, cfe;
   std::vector<Double_t> nSeBkg, nMeBkg;
-  std::vector<Method3BinRecord> records;
+  std::vector<DirectMassFitBinRecord> records;
   Int_t nFail = 0;
 
   for (Int_t iy = 1; iy <= h2SE->GetNbinsY(); ++iy) {
@@ -2703,7 +2723,7 @@ static void computeMethod3PurityGraphs(TFile* fin, const FemtoConfig::CfCentSlic
     hSE_ib->SetDirectory(0);
     hME_ib->SetDirectory(0);
 
-    Method3BinRecord rec;
+    DirectMassFitBinRecord rec;
     rec.iy = iy;
     rec.kstar = kstar;
     rec.seIntegral = hSE_ib->Integral();
@@ -2718,7 +2738,7 @@ static void computeMethod3PurityGraphs(TFile* fin, const FemtoConfig::CfCentSlic
       continue;
     }
 
-    Method3FitResult seFit, meFit;
+    KstarMassFitCfFitResult seFit, meFit;
     Bool_t okSE = fitPurityGausPol2OrConst(hSE_ib, fitMin, fitMax, sigMin, sigMax, sigmaMin, sigmaMax, preferPol2,
                                            seFit);
     Bool_t okME = fitPurityGausPol2OrConst(hME_ib, fitMin, fitMax, sigMin, sigMax, sigmaMin, sigmaMax, preferPol2,
@@ -2768,7 +2788,7 @@ static void computeMethod3PurityGraphs(TFile* fin, const FemtoConfig::CfCentSlic
   delete h2SE;
   delete h2ME;
 
-  std::cout << "[checkHistAnaFemtoPhi] Method3 " << channelBase << " " << slice.id << ": okBins=" << cfx.size()
+  std::cout << "[checkHistAnaFemtoPhi] direct-mass-fit " << channelBase << " " << slice.id << ": okBins=" << cfx.size()
             << " fail/skip=" << nFail << " kRebin=" << kRebin
             << " dkTarget=" << kstarBinTarget << "\n";
 
@@ -2781,42 +2801,42 @@ static void computeMethod3PurityGraphs(TFile* fin, const FemtoConfig::CfCentSlic
     cfCache[cfSliceCacheKey(slice.id, std::string("CF_method3_norm_") + channelBase + suf)] = 0;
   } else {
     TGraphErrors* gPT = new TGraphErrors((Int_t)kx.size(), &kx[0], &pyT[0], 0, &eyT[0]);
-    gPT->SetTitle(Form("P_{true}(k^{*}) Method3 %s %s", channelBase.c_str(), slice.id.c_str()));
+    gPT->SetTitle(Form("P_{true}(k^{*}) dmf %s %s", channelBase.c_str(), slice.id.c_str()));
     gPT->SetMarkerStyle(20);
     gPT->SetMarkerColor(kBlack);
     cfCache[pTrueKey] = gPT;
 
     TGraphErrors* gPM = new TGraphErrors((Int_t)kx.size(), &kx[0], &pyM[0], 0, &eyM[0]);
-    gPM->SetTitle(Form("P_{mix}(k^{*}) Method3 %s %s", channelBase.c_str(), slice.id.c_str()));
+    gPM->SetTitle(Form("P_{mix}(k^{*}) dmf %s %s", channelBase.c_str(), slice.id.c_str()));
     gPM->SetMarkerStyle(21);
     gPM->SetMarkerColor(kRed);
     cfCache[pMixKey] = gPM;
 
     TGraphErrors* gNSE = new TGraphErrors((Int_t)kx.size(), &kx[0], &nSe[0], 0, &eSe[0]);
-    gNSE->SetTitle(Form("N_{sig}^{SE}(k^{*}) Method3 %s %s", channelBase.c_str(), slice.id.c_str()));
+    gNSE->SetTitle(Form("N_{sig}^{SE}(k^{*}) dmf %s %s", channelBase.c_str(), slice.id.c_str()));
     gNSE->SetMarkerStyle(20);
     cfCache[nSeKey] = gNSE;
 
     TGraphErrors* gNME = new TGraphErrors((Int_t)kx.size(), &kx[0], &nMe[0], 0, &eMe[0]);
-    gNME->SetTitle(Form("N_{sig}^{ME}(k^{*}) Method3 %s %s", channelBase.c_str(), slice.id.c_str()));
+    gNME->SetTitle(Form("N_{sig}^{ME}(k^{*}) dmf %s %s", channelBase.c_str(), slice.id.c_str()));
     gNME->SetMarkerStyle(21);
     gNME->SetMarkerColor(kRed);
     cfCache[nMeKey] = gNME;
 
     TGraphErrors* gNSEb = new TGraphErrors((Int_t)kx.size(), &kx[0], &nSeBkg[0], 0, 0);
-    gNSEb->SetTitle(Form("N_{bkg}^{SE}(k^{*}) Method3 %s %s", channelBase.c_str(), slice.id.c_str()));
+    gNSEb->SetTitle(Form("N_{bkg}^{SE}(k^{*}) dmf %s %s", channelBase.c_str(), slice.id.c_str()));
     gNSEb->SetMarkerStyle(24);
     gNSEb->SetMarkerColor(kBlack);
     cfCache[nSeBkgKey] = gNSEb;
 
     TGraphErrors* gNMEb = new TGraphErrors((Int_t)kx.size(), &kx[0], &nMeBkg[0], 0, 0);
-    gNMEb->SetTitle(Form("N_{bkg}^{ME}(k^{*}) Method3 %s %s", channelBase.c_str(), slice.id.c_str()));
+    gNMEb->SetTitle(Form("N_{bkg}^{ME}(k^{*}) dmf %s %s", channelBase.c_str(), slice.id.c_str()));
     gNMEb->SetMarkerStyle(25);
     gNMEb->SetMarkerColor(kRed);
     cfCache[nMeBkgKey] = gNMEb;
 
     TGraphErrors* gCF = new TGraphErrors((Int_t)cfx.size(), &cfx[0], &cfy[0], 0, &cfe[0]);
-    gCF->SetTitle(Form("CF_{direct}(k^{*}) Method3 %s %s", channelBase.c_str(), slice.id.c_str()));
+    gCF->SetTitle(Form("CF_{direct}(k^{*}) dmf %s %s", channelBase.c_str(), slice.id.c_str()));
     gCF->SetMarkerStyle(20);
     gCF->SetMarkerColor(kBlue + 1);
     cfCache[cfKey] = gCF;
@@ -2844,7 +2864,7 @@ static void computeMethod3PurityGraphs(TFile* fin, const FemtoConfig::CfCentSlic
         ne.push_back(cfe[i] * scale);
       }
       TGraphErrors* gCFn = new TGraphErrors((Int_t)cfx.size(), &cfx[0], &ny[0], 0, &ne[0]);
-      gCFn->SetTitle(Form("CF_{direct}^{norm}(k^{*}) Method3 %s %s", channelBase.c_str(), slice.id.c_str()));
+      gCFn->SetTitle(Form("CF_{direct}^{norm}(k^{*}) dmf %s %s", channelBase.c_str(), slice.id.c_str()));
       gCFn->SetMarkerStyle(21);
       gCFn->SetMarkerColor(kAzure + 2);
       cfCache[cfNormKey] = gCFn;
@@ -2881,11 +2901,11 @@ static void computeMethod3PurityGraphs(TFile* fin, const FemtoConfig::CfCentSlic
   if (binRecordsOut) *binRecordsOut = records;
 }
 
-// Method3 CF_direct_norm vs Kubo-bkg genuine CF (closure). Uses Method3 P_true as lambda_sig.
-static void drawMethod3KuboClosureForBase(TCanvas* c1, TFile* fin, const std::string& base, const TString& pdfName,
+// Legacy direct mass-fit CF vs Kubo-bkg genuine CF (closure).
+static void drawDirectMassFitKuboClosureForBase(TCanvas* c1, TFile* fin, const std::string& base, const TString& pdfName,
                                           std::map<std::string, TGraphErrors*>& cfCache,
                                           std::map<std::string, Double_t>& metaCache) {
-  if (!c1 || !isMethod3Enabled() || !isKuboTripletEnabled()) return;
+  if (!c1 || !isLegacyCfPagesEnabled() || !isKuboTripletEnabled()) return;
 
   const FemtoConfig::CfCentSlice* slicePtr = 0;
   const std::vector<FemtoConfig::CfCentSlice> slices = getCfCentSliceList();
@@ -2898,9 +2918,9 @@ static void drawMethod3KuboClosureForBase(TCanvas* c1, TFile* fin, const std::st
   if (!slicePtr && !slices.empty()) slicePtr = &slices[0];
   if (!slicePtr) return;
 
-  const Double_t dk = getMethod3KstarBinTarget();
-  const std::string suf = method3CacheSuffix(dk);
-  computeMethod3PurityGraphs(fin, *slicePtr, base, cfCache, metaCache, 0, dk);
+  const Double_t dk = getKstarMassFitCfKstarBinTarget();
+  const std::string suf = kmfCacheSuffix(dk);
+  computeDirectMassFitCfGraphs(fin, *slicePtr, base, cfCache, metaCache, 0, dk);
   const std::string cfNormKey =
       cfSliceCacheKey(slicePtr->id, std::string("CF_method3_norm_") + base + suf);
   const std::string pTrueKey =
@@ -2920,25 +2940,25 @@ static void drawMethod3KuboClosureForBase(TCanvas* c1, TFile* fin, const std::st
     TLatex* lat = new TLatex();
     lat->SetNDC(kTRUE);
     lat->SetTextSize(0.035);
-    lat->DrawLatex(0.12, 0.55, Form("Method3/Kubo closure %s: missing CF_norm, P_true, or Kubo bkg", base.c_str()));
+    lat->DrawLatex(0.12, 0.55, Form("direct-mass-fit/Kubo closure %s: missing CF_norm, P_true, or Kubo bkg", base.c_str()));
     c1->Print(pdfName);
     return;
   }
 
-  // C_meas from signal-channel CF (same selection); prefer Method3 norm as primary meas for closure.
+  // C_meas from signal-channel CF (same selection); prefer direct-mass-fit norm as primary meas for closure.
   TGraphErrors* gGenKubo =
-      computeGenuineFromParts(gM3, gKubo, gP, Form("C_{gen}^{Kubo} from Method3 %s", base.c_str()));
+      computeGenuineFromParts(gM3, gKubo, gP, Form("C_{gen}^{Kubo} from dmf %s", base.c_str()));
   cfCache[std::string("closure:CF_kubo_from_m3_") + base] = gGenKubo;
 
   c1->Clear();
   c1->Divide(2, 1);
   c1->cd(1);
-  drawCfGraphOverlay(gM3, gGenKubo, "CF_{direct}^{norm} (Method3)", "C_{gen} (Kubo bkg)");
+  drawCfGraphOverlay(gM3, gGenKubo, "CF_{direct}^{norm} (dmf)", "C_{gen} (Kubo bkg)");
   if (gPad) {
     TLatex* lat = new TLatex();
     lat->SetNDC(kTRUE);
     lat->SetTextSize(0.03);
-    lat->DrawLatex(0.02, 0.98, Form("Closure %s [%s]: Method3 vs Kubo-weighted genuine", base.c_str(),
+    lat->DrawLatex(0.02, 0.98, Form("Closure %s [%s]: direct-mass-fit vs Kubo-weighted genuine", base.c_str(),
                                     slicePtr->id.c_str()));
   }
   c1->cd(2);
@@ -2999,24 +3019,24 @@ static void drawMethod3KuboClosureForBase(TCanvas* c1, TFile* fin, const std::st
   c1->Print(pdfName);
 }
 
-static void populateMethod3CachesForBase(TFile* fin, const std::string& channelBase,
+static void populateDirectMassFitCachesForBase(TFile* fin, const std::string& channelBase,
                                          std::map<std::string, TGraphErrors*>& cfCache,
                                          std::map<std::string, Double_t>& metaCache) {
   const std::vector<FemtoConfig::CfCentSlice> slices = getCfCentSliceList();
   for (size_t is = 0; is < slices.size(); ++is) {
-    computeMethod3PurityGraphs(fin, slices[is], channelBase, cfCache, metaCache, 0);
+    computeDirectMassFitCfGraphs(fin, slices[is], channelBase, cfCache, metaCache, 0);
   }
 }
 
-static void populateMethod3Caches(TFile* fin, std::map<std::string, TGraphErrors*>& cfCache,
+static void populateDirectMassFitCaches(TFile* fin, std::map<std::string, TGraphErrors*>& cfCache,
                                   std::map<std::string, Double_t>& metaCache) {
-  if (!isMethod3Enabled()) return;
+  if (!isLegacyCfPagesEnabled()) return;
   for (Int_t ib = 0; kChannelBases[ib]; ++ib) {
-    populateMethod3CachesForBase(fin, std::string(kChannelBases[ib]), cfCache, metaCache);
+    populateDirectMassFitCachesForBase(fin, std::string(kChannelBases[ib]), cfCache, metaCache);
   }
 }
 
-static void drawMethod3MassFitPanel(TFile* fin, const FemtoConfig::CfCentSlice& slice, const std::string& channelBase,
+static void drawDirectMassFitPanel(TFile* fin, const FemtoConfig::CfCentSlice& slice, const std::string& channelBase,
                                     Double_t kstarVal, Bool_t isSE, std::vector<TH1*>& keepAlive) {
   if (kstarVal < 0.0) {
     TLatex* lat = new TLatex();
@@ -3036,7 +3056,7 @@ static void drawMethod3MassFitPanel(TFile* fin, const FemtoConfig::CfCentSlice& 
   }
   TH2* h2 = projectMkkVsKstarForSlice(h3, slice.cent9Min, slice.cent9Max, isSE ? "_m3ex_se" : "_m3ex_me");
   if (!h2) return;
-  const Int_t kRebin = method3RebinFactorForWidth(h2->GetYaxis()->GetBinWidth(1), getMethod3KstarBinTarget());
+  const Int_t kRebin = kmfRebinFactorForWidth(h2->GetYaxis()->GetBinWidth(1), getKstarMassFitCfKstarBinTarget());
   if (kRebin > 1) h2 = (TH2*)h2->RebinY(kRebin);
   const Int_t iy = h2->GetYaxis()->FindBin(kstarVal);
   if (iy < 1 || iy > h2->GetNbinsY()) {
@@ -3057,13 +3077,13 @@ static void drawMethod3MassFitPanel(TFile* fin, const FemtoConfig::CfCentSlice& 
   Double_t purityMinK = 0.0, purityMaxK = 0.65, clampMin = 0.05, clampMax = 1.0;
   Int_t minEntries = 20;
   Bool_t preferPol2 = kTRUE;
-  getMethod3FitConfig(fitMin, fitMax, sigmaMin, sigmaMax, purityMinK, purityMaxK, minEntries, clampMin, clampMax,
+  getKstarMassFitCfFitConfig(fitMin, fitMax, sigmaMin, sigmaMax, purityMinK, purityMaxK, minEntries, clampMin, clampMax,
                       preferPol2);
   const std::string chSig = channelSignal(channelBase);
   Double_t sigMin = 1.012, sigMax = 1.026;
   getChannelSignalMassWindow(chSig, sigMin, sigMax);
 
-  Method3FitResult fr;
+  KstarMassFitCfFitResult fr;
   Bool_t ok = fitPurityGausPol2OrConst(h1, fitMin, fitMax, sigMin, sigMax, sigmaMin, sigmaMax, preferPol2, fr);
 
   h1->SetLineColor(kBlack);
@@ -3122,7 +3142,7 @@ static void drawMethod3MassFitPanel(TFile* fin, const FemtoConfig::CfCentSlice& 
   }
 }
 
-static void drawMethod3GuidePage(TCanvas* canvas) {
+static void drawDirectMassFitGuidePage(TCanvas* canvas) {
   if (!canvas) return;
   canvas->Clear();
   canvas->cd(1);
@@ -3132,7 +3152,7 @@ static void drawMethod3GuidePage(TCanvas* canvas) {
   title->SetNDC(kTRUE);
   title->SetTextSize(0.038);
   title->SetTextFont(62);
-  title->DrawLatex(0.06, 0.94, "Method 3: Direct purity fitting (no sideband CF)");
+  title->DrawLatex(0.06, 0.94, "Legacy: Direct mass-fit CF (no sideband CF)");
 
   TLatex* t = new TLatex();
   t->SetNDC(kTRUE);
@@ -3178,26 +3198,26 @@ static void drawMethod3GuidePage(TCanvas* canvas) {
   t->SetTextFont(42);
   y -= dy;
   if (gConfigLoaded) {
-    const Double_t dk = ConfigManager::GetInstance().GetFemtoConfig().purityDirectKstarBinWidth;
+    const Double_t dk = ConfigManager::GetInstance().GetFemtoConfig().kstarMassFitCfKstarBinWidth;
     if (dk > 0.0)
-      t->DrawLatex(0.08, y, Form("purityDirectKstarBinWidth = %.3f GeV/c (RebinY from native 0.010 GeV/c).", dk));
+      t->DrawLatex(0.08, y, Form("kstarMassFitCfKstarBinWidth = %.3f GeV/c (RebinY from native 0.010 GeV/c).", dk));
     else
-      t->DrawLatex(0.08, y, "purityDirectKstarBinWidth <= 0: native *Kstar binning (0.010 GeV/c).");
+      t->DrawLatex(0.08, y, "kstarMassFitCfKstarBinWidth <= 0: native *Kstar binning (0.010 GeV/c).");
   } else {
-    t->DrawLatex(0.08, y, "purityDirectKstarBinWidth from maker YAML (default: native 0.010 GeV/c).");
+    t->DrawLatex(0.08, y, "kstarMassFitCfKstarBinWidth from maker YAML.");
   }
 }
 
-static void drawMethod3SlicePageForBase(TCanvas* canvas, TFile* fin, const FemtoConfig::CfCentSlice& slice,
+static void drawDirectMassFitSlicePageForBase(TCanvas* canvas, TFile* fin, const FemtoConfig::CfCentSlice& slice,
                                         const std::string& channelBase, std::map<std::string, TGraphErrors*>& cfCache,
                                         std::map<std::string, Double_t>& metaCache) {
   if (!canvas) return;
-  const Double_t kstarBinTarget = getMethod3KstarBinTarget();
-  computeMethod3PurityGraphs(fin, slice, channelBase, cfCache, metaCache, 0, kstarBinTarget);
+  const Double_t kstarBinTarget = getKstarMassFitCfKstarBinTarget();
+  computeDirectMassFitCfGraphs(fin, slice, channelBase, cfCache, metaCache, 0, kstarBinTarget);
   canvas->Clear();
   canvas->Divide(2, 2);
 
-  const std::string suf = method3CacheSuffix(kstarBinTarget);
+  const std::string suf = kmfCacheSuffix(kstarBinTarget);
   const std::string nSeKey = cfSliceCacheKey(slice.id, std::string("method3_Nsig_SE_") + channelBase + suf);
   const std::string nMeKey = cfSliceCacheKey(slice.id, std::string("method3_Nsig_ME_") + channelBase + suf);
   const std::string pTrueKey = cfSliceCacheKey(slice.id, std::string("method3_P_true_") + channelBase + suf);
@@ -3237,7 +3257,7 @@ static void drawMethod3SlicePageForBase(TCanvas* canvas, TFile* fin, const Femto
   } else {
     TLatex* lat = new TLatex();
     lat->SetNDC(kTRUE);
-    lat->DrawLatex(0.15, 0.5, "Method3 N_{sig}: missing wide TH3 or fit failed");
+    lat->DrawLatex(0.15, 0.5, "direct-mass-fit N_{sig}: missing wide TH3 or fit failed");
   }
 
   canvas->cd(2);
@@ -3280,7 +3300,7 @@ static void drawMethod3SlicePageForBase(TCanvas* canvas, TFile* fin, const Femto
   TLatex* note = new TLatex();
   note->SetNDC(kTRUE);
   note->SetTextSize(0.035);
-  note->DrawLatex(0.12, 0.75, Form("%s Method3 %s", channelBase.c_str(), slice.id.c_str()));
+  note->DrawLatex(0.12, 0.75, Form("%s dmf %s", channelBase.c_str(), slice.id.c_str()));
   note->DrawLatex(0.12, 0.65, Form("cent9 [%d,%d]", slice.cent9Min, slice.cent9Max));
   note->DrawLatex(0.12, 0.55, "CF_{direct} = N_{sig}^{SE} / N_{sig}^{ME}");
   note->DrawLatex(0.12, 0.45, "Needs hPhiMKK_vs_Kstar*_wide");
@@ -3294,7 +3314,7 @@ static void drawMethod3SlicePageForBase(TCanvas* canvas, TFile* fin, const Femto
   note->DrawLatex(0.12, 0.30, Form("exemplar k* high=%.3f  low=%.3f", kH, kL));
 }
 
-static void drawMethod3FitExemplarPageForBase(TCanvas* canvas, TFile* fin, const FemtoConfig::CfCentSlice& slice,
+static void drawDirectMassFitExemplarPageForBase(TCanvas* canvas, TFile* fin, const FemtoConfig::CfCentSlice& slice,
                                               const std::string& channelBase,
                                               std::map<std::string, Double_t>& metaCache,
                                               std::vector<TH1*>& keepAlive) {
@@ -3303,20 +3323,20 @@ static void drawMethod3FitExemplarPageForBase(TCanvas* canvas, TFile* fin, const
   canvas->Divide(2, 2);
 
   Double_t kHigh = -1.0, kLow = -1.0;
-  const std::string suf = method3CacheSuffix(getMethod3KstarBinTarget());
+  const std::string suf = kmfCacheSuffix(getKstarMassFitCfKstarBinTarget());
   const std::string kh = cfSliceCacheKey(slice.id, std::string("method3_k_high_") + channelBase + suf);
   const std::string kl = cfSliceCacheKey(slice.id, std::string("method3_k_low_") + channelBase + suf);
   if (metaCache.count(kh)) kHigh = metaCache[kh];
   if (metaCache.count(kl)) kLow = metaCache[kl];
 
   canvas->cd(1);
-  drawMethod3MassFitPanel(fin, slice, channelBase, kHigh, kTRUE, keepAlive);
+  drawDirectMassFitPanel(fin, slice, channelBase, kHigh, kTRUE, keepAlive);
   canvas->cd(2);
-  drawMethod3MassFitPanel(fin, slice, channelBase, kHigh, kFALSE, keepAlive);
+  drawDirectMassFitPanel(fin, slice, channelBase, kHigh, kFALSE, keepAlive);
   canvas->cd(3);
-  drawMethod3MassFitPanel(fin, slice, channelBase, kLow, kTRUE, keepAlive);
+  drawDirectMassFitPanel(fin, slice, channelBase, kLow, kTRUE, keepAlive);
   canvas->cd(4);
-  drawMethod3MassFitPanel(fin, slice, channelBase, kLow, kFALSE, keepAlive);
+  drawDirectMassFitPanel(fin, slice, channelBase, kLow, kFALSE, keepAlive);
 
   if (gPad) {
     canvas->cd(0);
@@ -3324,12 +3344,12 @@ static void drawMethod3FitExemplarPageForBase(TCanvas* canvas, TFile* fin, const
     lat->SetNDC(kTRUE);
     lat->SetTextSize(0.025);
     lat->DrawLatex(0.02, 0.97,
-                   Form("%s Method3 fit exemplars %s (top=high-stat k*, bottom=low-stat k*)", channelBase.c_str(),
+                   Form("%s direct-mass-fit exemplars %s (top=high-stat k*, bottom=low-stat k*)", channelBase.c_str(),
                         slice.id.c_str()));
   }
 }
 
-// Draw one already-projected M_KK slice with the Method 3 gaus+pol2/const fit into the
+// Draw one already-projected M_KK slice with the legacy gaus+pol2/const fit into the
 // current (small) pad. Used by the all-k* overview PDF.
 static void drawMethod3MassHistCompact(TH1* h1, Double_t kstarVal, Bool_t isSE, Double_t fitMin, Double_t fitMax,
                                        Double_t sigMin, Double_t sigMax, Double_t sigmaMin, Double_t sigmaMax,
@@ -3337,7 +3357,7 @@ static void drawMethod3MassHistCompact(TH1* h1, Double_t kstarVal, Bool_t isSE, 
   if (!h1) return;
   if (gPad) gPad->SetMargin(0.16, 0.04, 0.14, 0.12);
 
-  Method3FitResult fr;
+  KstarMassFitCfFitResult fr;
   Bool_t ok = fitPurityGausPol2OrConst(h1, fitMin, fitMax, sigMin, sigMax, sigmaMin, sigmaMax, preferPol2, fr);
 
   h1->SetLineColor(kBlack);
@@ -3396,121 +3416,6 @@ static void drawMethod3MassHistCompact(TH1* h1, Double_t kstarVal, Bool_t isSE, 
   }
 }
 
-// One page: all k* mass-fit panels (SE and ME) for a single base x centrality slice.
-// SE and ME for a given k* bin sit in adjacent columns so shapes can be compared directly.
-static void drawMethod3AllKstarFitsPageForBase(TCanvas* canvas, TFile* fin, const FemtoConfig::CfCentSlice& slice,
-                                                const std::string& channelBase, std::vector<TH1*>& keepAlive,
-                                                Double_t kstarBinTarget = 0.0) {
-  if (!canvas) return;
-  canvas->Clear();
-
-  Double_t fitMin = 0.99, fitMax = 1.06, sigmaMin = 0.002, sigmaMax = 0.020;
-  Double_t purityMinK = 0.0, purityMaxK = 0.65, clampMin = 0.05, clampMax = 1.0;
-  Int_t minEntries = 20;
-  Bool_t preferPol2 = kTRUE;
-  getMethod3FitConfig(fitMin, fitMax, sigmaMin, sigmaMax, purityMinK, purityMaxK, minEntries, clampMin, clampMax,
-                      preferPol2);
-  const std::string chSig = channelSignal(channelBase);
-  Double_t sigMin = 1.012, sigMax = 1.026;
-  getChannelSignalMassWindow(chSig, sigMin, sigMax);
-
-  TH3* h3SE = (TH3*)fin->Get(phiMkkVsKstarWideSeKey(channelBase).c_str());
-  TH3* h3ME = (TH3*)fin->Get(phiMkkVsKstarWideMeKey(channelBase).c_str());
-  if (!h3SE || !h3ME) {
-    canvas->cd(1);
-    TLatex* lat = new TLatex();
-    lat->SetNDC(kTRUE);
-    lat->SetTextSize(0.03);
-    lat->DrawLatex(0.1, 0.5,
-                   Form("%s %s: missing wide TH3 (needs Maker re-run)", channelBase.c_str(), slice.id.c_str()));
-    return;
-  }
-
-  TH2* h2SE = projectMkkVsKstarForSlice(h3SE, slice.cent9Min, slice.cent9Max, "_m3all_se");
-  TH2* h2ME = projectMkkVsKstarForSlice(h3ME, slice.cent9Min, slice.cent9Max, "_m3all_me");
-  if (!h2SE || !h2ME) {
-    delete h2SE;
-    delete h2ME;
-    return;
-  }
-
-  const Int_t kRebin = method3RebinFactorForWidth(h2SE->GetYaxis()->GetBinWidth(1), kstarBinTarget);
-  if (kRebin > 1) {
-    h2SE = (TH2*)h2SE->RebinY(kRebin);
-    h2ME = (TH2*)h2ME->RebinY(kRebin);
-  }
-  const Double_t kBinW = h2SE->GetYaxis()->GetBinWidth(1);
-
-  std::vector<Int_t> bins;
-  std::vector<TH1*> seHists;
-  std::vector<TH1*> meHists;
-  std::vector<Double_t> kvals;
-  for (Int_t iy = 1; iy <= h2SE->GetNbinsY(); ++iy) {
-    const Double_t kstar = h2SE->GetYaxis()->GetBinCenter(iy);
-    if (kstar < purityMinK || kstar > purityMaxK) continue;
-    TH1* hSE = h2SE->ProjectionX(Form("_m3all_se_%s_%s_rb%d_%d", channelBase.c_str(), slice.id.c_str(), kRebin, iy),
-                                 iy, iy);
-    TH1* hME = h2ME->ProjectionX(Form("_m3all_me_%s_%s_rb%d_%d", channelBase.c_str(), slice.id.c_str(), kRebin, iy),
-                                 iy, iy);
-    Double_t nse = hSE ? hSE->Integral() : 0.0;
-    Double_t nme = hME ? hME->Integral() : 0.0;
-    if (nse <= 0.0 && nme <= 0.0) {
-      delete hSE;
-      delete hME;
-      continue;
-    }
-    if (hSE) hSE->SetDirectory(0);
-    if (hME) hME->SetDirectory(0);
-    keepAlive.push_back(hSE);
-    keepAlive.push_back(hME);
-    bins.push_back(iy);
-    seHists.push_back(hSE);
-    meHists.push_back(hME);
-    kvals.push_back(kstar);
-  }
-  delete h2SE;
-  delete h2ME;
-
-  const Int_t nBins = (Int_t)bins.size();
-  if (nBins == 0) {
-    canvas->cd(1);
-    TLatex* lat = new TLatex();
-    lat->SetNDC(kTRUE);
-    lat->SetTextSize(0.03);
-    lat->DrawLatex(0.1, 0.5, Form("%s %s: no k* bins with entries", channelBase.c_str(), slice.id.c_str()));
-    return;
-  }
-
-  Int_t pairsPerRow = (Int_t)TMath::Ceil(TMath::Sqrt((Double_t)nBins));
-  if (pairsPerRow < 1) pairsPerRow = 1;
-  Int_t nRows = (Int_t)TMath::Ceil((Double_t)nBins / pairsPerRow);
-  const Int_t nColsPads = 2 * pairsPerRow;
-  canvas->Divide(nColsPads, nRows, 0.0012, 0.0012);
-
-  for (Int_t b = 0; b < nBins; ++b) {
-    const Int_t row = b / pairsPerRow;
-    const Int_t c = b % pairsPerRow;
-    const Int_t sePad = row * nColsPads + (2 * c) + 1;
-    const Int_t mePad = row * nColsPads + (2 * c + 1) + 1;
-
-    canvas->cd(sePad);
-    drawMethod3MassHistCompact(seHists[b], kvals[b], kTRUE, fitMin, fitMax, sigMin, sigMax, sigmaMin, sigmaMax,
-                               preferPol2);
-    canvas->cd(mePad);
-    drawMethod3MassHistCompact(meHists[b], kvals[b], kFALSE, fitMin, fitMax, sigMin, sigMax, sigmaMin, sigmaMax,
-                               preferPol2);
-  }
-
-  canvas->cd(0);
-  TLatex* lat = new TLatex();
-  lat->SetNDC(kTRUE);
-  lat->SetTextSize(0.020);
-  lat->SetTextFont(62);
-  lat->DrawLatex(
-      0.02, 0.985,
-      Form("%s  %s (cent9 [%d,%d])  all k* M_{KK} fits: SE|ME adjacent, %d bins  [#Deltak*=%.3f GeV/c, green=signal window]",
-           channelBase.c_str(), slice.id.c_str(), slice.cent9Min, slice.cent9Max, nBins, kBinW));
-}
 
 // Build S/B(k*) from cached N_sig and N_bkg graphs (identical x sampling). Returns 0 if unavailable.
 static TGraph* buildMethod3SignalToBkgGraph(TGraphErrors* gSig, TGraphErrors* gBkg, Color_t color, Style_t style) {
@@ -3537,17 +3442,17 @@ static TGraph* buildMethod3SignalToBkgGraph(TGraphErrors* gSig, TGraphErrors* gB
 // Purity / yield diagnostics page inserted after each all-k* mass-fit page (same base x slice).
 // p1: P_true(k*) & P_mix(k*)   p2: N_sig^SE & N_sig^ME (log)
 // p3: S/B^SE & S/B^ME (log)    p4: CF_direct(k*) = N_sig^SE / N_sig^ME
-static void drawMethod3PurityPageForBase(TCanvas* canvas, TFile* fin, const FemtoConfig::CfCentSlice& slice,
+static void drawDirectMassFitPurityPageForBase(TCanvas* canvas, TFile* fin, const FemtoConfig::CfCentSlice& slice,
                                          const std::string& channelBase,
                                          std::map<std::string, TGraphErrors*>& cfCache,
                                          std::map<std::string, Double_t>& metaCache, Double_t kstarBinTarget = -1.0) {
   if (!canvas) return;
-  if (kstarBinTarget < 0.0) kstarBinTarget = getMethod3KstarBinTarget();
-  computeMethod3PurityGraphs(fin, slice, channelBase, cfCache, metaCache, 0, kstarBinTarget);
+  if (kstarBinTarget < 0.0) kstarBinTarget = getKstarMassFitCfKstarBinTarget();
+  computeDirectMassFitCfGraphs(fin, slice, channelBase, cfCache, metaCache, 0, kstarBinTarget);
   canvas->Clear();
   canvas->Divide(2, 2);
 
-  const std::string suf = method3CacheSuffix(kstarBinTarget);
+  const std::string suf = kmfCacheSuffix(kstarBinTarget);
   const std::string pTrueKey = cfSliceCacheKey(slice.id, std::string("method3_P_true_") + channelBase + suf);
   const std::string pMixKey = cfSliceCacheKey(slice.id, std::string("method3_P_mix_") + channelBase + suf);
   const std::string nSeKey = cfSliceCacheKey(slice.id, std::string("method3_Nsig_SE_") + channelBase + suf);
@@ -3700,18 +3605,18 @@ static void drawMethod3PurityPageForBase(TCanvas* canvas, TFile* fin, const Femt
   TString binTag =
       (kstarBinTarget > 0.0) ? Form("  [#Deltak*#approx%.3f GeV/c]", kstarBinTarget) : "  [native #Deltak*]";
   title->DrawLatex(0.02, 0.985,
-                   Form("%s  %s (cent9 [%d,%d])  Method3 purity / yield diagnostics%s%s", channelBase.c_str(),
+                   Form("%s  %s (cent9 [%d,%d])  direct-mass-fit purity / yield diagnostics%s%s", channelBase.c_str(),
                         slice.id.c_str(), slice.cent9Min, slice.cent9Max, binTag.Data(),
                         haveAny ? "" : "  [no data]"));
 }
 
 // ---------------------------------------------------------------------------
-// Method3 ROT/MIX mass-background subtraction QA (appended to Method3AllKstar PDF)
+// kstarMassFitCF ROT/MIX mass-background subtraction QA (dedicated PDF)
 // S = F - alpha * B,  alpha = int_side F / int_side B  (left+right SB windows)
 // ---------------------------------------------------------------------------
 // Mass-axis rebin applied to SE/ME F and B projections before alpha, S, and gaus fit.
 // Trial value (YAML wiring deferred); set 1 to disable.
-static const Int_t kMethod3BkgSubMassRebin = 3;
+static const Int_t kKmfMassRebin = 3;
 
 static Bool_t getChannelSidebandWindows(const std::string& channelBase, Double_t& lMin, Double_t& lMax,
                                         Double_t& rMin, Double_t& rMax) {
@@ -3734,6 +3639,13 @@ static Bool_t getChannelSidebandWindows(const std::string& channelBase, Double_t
   return kTRUE;
 }
 
+static const Int_t kKmfStatusOk = 0;
+static const Int_t kKmfStatusFitFail = 1;
+static const Int_t kKmfStatusNegYield = 2;
+static const Int_t kKmfStatusLowStat = 3;
+static const Int_t kKmfStatusNormFail = 4;
+static const Int_t kKmfStatusNonFinite = 5;
+
 static Double_t histIntegralRange(TH1* h, Double_t xMin, Double_t xMax) {
   if (!h) return 0.0;
   Int_t b0 = h->GetXaxis()->FindBin(xMin + 1e-9);
@@ -3742,21 +3654,99 @@ static Double_t histIntegralRange(TH1* h, Double_t xMin, Double_t xMax) {
   return h->Integral(b0, b1);
 }
 
-static Double_t method3SidebandScale(TH1* hF, TH1* hB, Double_t lMin, Double_t lMax, Double_t rMin, Double_t rMax) {
-  const Double_t fSide = histIntegralRange(hF, lMin, lMax) + histIntegralRange(hF, rMin, rMax);
-  const Double_t bSide = histIntegralRange(hB, lMin, lMax) + histIntegralRange(hB, rMin, rMax);
-  if (bSide <= 0.0) return 0.0;
-  return fSide / bSide;
+static Double_t histIntegralAndErrorRange(TH1* h, Double_t xMin, Double_t xMax, Double_t& err) {
+  err = 0.0;
+  if (!h) return 0.0;
+  Int_t b0 = h->GetXaxis()->FindBin(xMin + 1e-9);
+  Int_t b1 = h->GetXaxis()->FindBin(xMax - 1e-9);
+  if (b1 < b0) return 0.0;
+  return h->IntegralAndError(b0, b1, err);
 }
 
-static Double_t method3SidebandScaleSingle(TH1* hF, TH1* hB, Double_t mMin, Double_t mMax) {
-  const Double_t fSide = histIntegralRange(hF, mMin, mMax);
-  const Double_t bSide = histIntegralRange(hB, mMin, mMax);
+static Double_t kmfAlphaFromWindows(TH1* hF, TH1* hB, Double_t lMin, Double_t lMax, Double_t rMin, Double_t rMax,
+                                    Double_t& alphaErr) {
+  alphaErr = 0.0;
+  Double_t eFL = 0.0, eFR = 0.0, eBL = 0.0, eBR = 0.0;
+  const Double_t fSide =
+      histIntegralAndErrorRange(hF, lMin, lMax, eFL) + histIntegralAndErrorRange(hF, rMin, rMax, eFR);
+  const Double_t bSide =
+      histIntegralAndErrorRange(hB, lMin, lMax, eBL) + histIntegralAndErrorRange(hB, rMin, rMax, eBR);
+  const Double_t eF = TMath::Sqrt(eFL * eFL + eFR * eFR);
+  const Double_t eB = TMath::Sqrt(eBL * eBL + eBR * eBR);
   if (bSide <= 0.0) return 0.0;
-  return fSide / bSide;
+  const Double_t a = fSide / bSide;
+  Double_t rel2 = 0.0;
+  if (fSide > 0.0) rel2 += TMath::Power(eF / fSide, 2);
+  rel2 += TMath::Power(eB / bSide, 2);
+  alphaErr = TMath::Abs(a) * TMath::Sqrt(rel2);
+  return a;
 }
 
-static std::string method3BkgWideKey(const std::string& channelBase, const char* templateTag, Bool_t isSE) {
+static Double_t kmfAlphaFromSingleWindow(TH1* hF, TH1* hB, Double_t mMin, Double_t mMax, Double_t& alphaErr) {
+  alphaErr = 0.0;
+  Double_t eF = 0.0, eB = 0.0;
+  const Double_t fSide = histIntegralAndErrorRange(hF, mMin, mMax, eF);
+  const Double_t bSide = histIntegralAndErrorRange(hB, mMin, mMax, eB);
+  if (bSide <= 0.0) return 0.0;
+  const Double_t a = fSide / bSide;
+  Double_t rel2 = 0.0;
+  if (fSide > 0.0) rel2 += TMath::Power(eF / fSide, 2);
+  rel2 += TMath::Power(eB / bSide, 2);
+  alphaErr = TMath::Abs(a) * TMath::Sqrt(rel2);
+  return a;
+}
+
+static void kmfApplyAlphaErrorToS(TH1* hS, TH1* hB, Double_t alphaErr) {
+  if (!hS || !hB || alphaErr <= 0.0) return;
+  const Int_t n = hS->GetNbinsX();
+  for (Int_t i = 1; i <= n; ++i) {
+    const Double_t b = hB->GetBinContent(i);
+    const Double_t e0 = hS->GetBinError(i);
+    const Double_t eA = TMath::Abs(b) * alphaErr;
+    hS->SetBinError(i, TMath::Sqrt(e0 * e0 + eA * eA));
+  }
+}
+
+static void getKstarMassFitCfTemplateOrder(std::vector<std::string>& tags) {
+  tags.clear();
+  std::string def = "rot";
+  Bool_t xcheck = kTRUE;
+  if (gConfigLoaded) {
+    const FemtoConfig& fc = ConfigManager::GetInstance().GetFemtoConfig();
+    def = fc.kstarMassFitCfTemplate;
+    xcheck = fc.kstarMassFitCfCrossCheck;
+  }
+  if (def != "rot" && def != "mix") def = "rot";
+  tags.push_back(def);
+  if (xcheck) tags.push_back(def == "rot" ? "mix" : "rot");
+}
+
+static Int_t kmfYieldStatus(Bool_t fitOk, Double_t nSig, Double_t errNSig, Bool_t lowStat) {
+  if (lowStat) return kKmfStatusLowStat;
+  if (!fitOk) return kKmfStatusFitFail;
+  if (!TMath::Finite(nSig) || !TMath::Finite(errNSig)) return kKmfStatusNonFinite;
+  if (nSig <= 0.0) return kKmfStatusNegYield;
+  return kKmfStatusOk;
+}
+
+static void kmfWarnWindowOverlapOnce(Double_t fitMin, Double_t fitMax, Double_t sigMin, Double_t sigMax,
+                                     Double_t aMin, Double_t aMax, Bool_t alphaSingle) {
+  static Bool_t warned = kFALSE;
+  if (warned || !alphaSingle) return;
+  warned = kTRUE;
+  const Bool_t overlapSig = (aMin < sigMax) && (aMax > sigMin);
+  const Bool_t overlapFit = (aMin < fitMax) && (aMax > fitMin);
+  if (overlapSig) {
+    std::cerr << "[checkHistAnaFemtoPhi] WARNING: kstarMassFitCF α window [" << aMin << "," << aMax
+              << "] overlaps signal window [" << sigMin << "," << sigMax << "]" << std::endl;
+  }
+  if (overlapFit) {
+    std::cerr << "[checkHistAnaFemtoPhi] WARNING: kstarMassFitCF α window [" << aMin << "," << aMax
+              << "] overlaps fit range [" << fitMin << "," << fitMax << "]" << std::endl;
+  }
+}
+
+static std::string kmfBkgWideKey(const std::string& channelBase, const char* templateTag, Bool_t isSE) {
   // templateTag: "rot" or "mix" -> phi_rot_proton / phi_mix_proton
   const std::string bach =
       (channelBase.find("deuteron") != std::string::npos) ? "deuteron" : "proton";
@@ -3764,7 +3754,7 @@ static std::string method3BkgWideKey(const std::string& channelBase, const char*
          "_wide";
 }
 
-static void drawMethod3BkgSubGuidePage(TCanvas* canvas) {
+static void drawKstarMassFitCfGuidePage(TCanvas* canvas) {
   if (!canvas) return;
   canvas->Clear();
   canvas->cd(1);
@@ -3774,14 +3764,14 @@ static void drawMethod3BkgSubGuidePage(TCanvas* canvas) {
   title->SetNDC(kTRUE);
   title->SetTextSize(0.036);
   title->SetTextFont(62);
-  title->DrawLatex(0.06, 0.94, "Method 3 add-on: ROT / MIX mass-background subtraction QA");
+  title->DrawLatex(0.06, 0.94, "kstarMassFitCF: per-k* full M_{KK} fit, S = F - #alpha B");
 
   TLatex* t = new TLatex();
   t->SetNDC(kTRUE);
   t->SetTextSize(0.025);
   Double_t y = 0.88;
   const Double_t dy = 0.034;
-  t->DrawLatex(0.06, y, "This PDF starts here (native all-k* fit/purity pages omitted).");
+  t->DrawLatex(0.06, y, "This PDF is the primary CF QA (simple SE/ME ratio is diagnostic only).");
   y -= dy;
   t->DrawLatex(0.06, y, "Pages below (phi-p / phi-d only): per k* bin, SE and ME rows.");
   y -= dy;
@@ -3797,11 +3787,11 @@ static void drawMethod3BkgSubGuidePage(TCanvas* canvas) {
   t->DrawLatex(0.06, y, "Mass rebin (before #alpha / S / fit):");
   t->SetTextFont(42);
   y -= dy;
-  t->DrawLatex(0.08, y, Form("SE and ME: Rebin(%d) on F and B projections (kMethod3BkgSubMassRebin).",
-                             kMethod3BkgSubMassRebin));
+  t->DrawLatex(0.08, y, Form("SE and ME: Rebin(%d) on F and B projections (kKmfMassRebin).",
+                             kKmfMassRebin));
   y -= dy * 1.2;
   t->DrawLatex(0.08, y, Form("Low k*: merge first %d x %.3f-GeV/c bins before projection and fit.",
-                             getMethod3BkgSubLowKstarMergeBins(), getMethod3KstarBinTarget()));
+                             getKstarMassFitCfLowKstarMergeBins(), getKstarMassFitCfKstarBinTarget()));
   y -= dy * 1.2;
   t->SetTextFont(62);
   t->DrawLatex(0.06, y, "Scale:");
@@ -3809,7 +3799,7 @@ static void drawMethod3BkgSubGuidePage(TCanvas* canvas) {
   y -= dy;
   {
     Double_t aMin = 0.0, aMax = 0.0;
-    if (getMethod3BkgSubAlphaSingleWindow(aMin, aMax)) {
+    if (getKstarMassFitCfAlphaSingleWindow(aMin, aMax)) {
       t->DrawLatex(0.08, y,
                    Form("#alpha = [#int F dM] / [#int B dM] over right-only M_{KK}: %.3f - %.3f GeV/c^{2}", aMin, aMax));
     } else {
@@ -3829,9 +3819,9 @@ static void drawMethod3BkgSubGuidePage(TCanvas* canvas) {
   y -= dy;
   t->DrawLatex(0.06, y, "C_{raw}(k*) = Y_SE(k*)/Y_ME(k*);  C_{norm} scaled to ~1 in channel normQMin-normQMax.");
   y -= dy;
-  t->DrawLatex(0.06, y, "Graphs also written to Method3 sidecar ROOT (CF_method3_bkgsub_*).");
+  t->DrawLatex(0.06, y, "Graphs also written to sidecar ROOT (CF_kmf_{rot|mix}_*_{raw|norm}, kmf_Y_*, kmf_fitstatus_*).");
   y -= dy;
-  t->DrawLatex(0.06, y, "k* binning matches purityDirectKstarBinWidth; centrality: pct_0_10 / 0_20 / 0_30.");
+  t->DrawLatex(0.06, y, "k* binning matches kstarMassFitCfKstarBinWidth; centrality: pct_0_10 / 0_20 / 0_30.");
   y -= dy * 1.2;
   t->SetTextColor(kRed + 1);
   t->DrawLatex(0.06, y, "MIX keys need a farm re-run after switching to standard current#timesbuffer MIX.");
@@ -3839,11 +3829,12 @@ static void drawMethod3BkgSubGuidePage(TCanvas* canvas) {
 
 // One page per k* bin: Divide(4,2): row0 SE F / αB / S+fit / overlay, row1 ME.
 // Optionally fills nSigSE/ME (+errors) from S fits when pointers are non-null.
-static Bool_t drawMethod3BkgSubKstarPage(TCanvas* canvas, TFile* fin, const FemtoConfig::CfCentSlice& slice,
+static Bool_t drawKstarMassFitCfKstarPage(TCanvas* canvas, TFile* fin, const FemtoConfig::CfCentSlice& slice,
                                          const std::string& channelBase, const char* templateTag, Int_t iyFirst,
                                          Int_t iyLast, Double_t kstar, TH2* h2Fse, TH2* h2Fme, TH2* h2Bse, TH2* h2Bme,
                                          Double_t kstarBinTarget, std::vector<TH1*>& keepAlive, Double_t* nSigSE,
-                                         Double_t* eSigSE, Double_t* nSigME, Double_t* eSigME) {
+                                         Double_t* eSigSE, Double_t* nSigME, Double_t* eSigME, Int_t* statusSE,
+                                         Int_t* statusME) {
   if (!canvas) return kFALSE;
   canvas->Clear();
   canvas->Divide(4, 2);
@@ -3852,17 +3843,23 @@ static Bool_t drawMethod3BkgSubKstarPage(TCanvas* canvas, TFile* fin, const Femt
   Double_t purityMinK = 0.0, purityMaxK = 0.65, clampMin = 0.05, clampMax = 1.0;
   Int_t minEntries = 20;
   Bool_t preferPol2 = kTRUE;
-  getMethod3FitConfig(fitMin, fitMax, sigmaMin, sigmaMax, purityMinK, purityMaxK, minEntries, clampMin, clampMax,
+  getKstarMassFitCfFitConfig(fitMin, fitMax, sigmaMin, sigmaMax, purityMinK, purityMaxK, minEntries, clampMin, clampMax,
                       preferPol2);
-  (void)preferPol2;  // bkg-sub S uses gaus-only; Method3 YAML model kept for direct CF path
+  (void)preferPol2;  // S uses gaus-only; purityDirectFitModel is legacy direct mass-fit only
   Double_t sigMin = 1.012, sigMax = 1.026;
   getChannelSignalMassWindow(channelSignal(channelBase), sigMin, sigMax);
   Double_t alphaMassMin = 0.0, alphaMassMax = 0.0;
-  const Bool_t alphaSingle = getMethod3BkgSubAlphaSingleWindow(alphaMassMin, alphaMassMax);
+  const Bool_t alphaSingle = getKstarMassFitCfAlphaSingleWindow(alphaMassMin, alphaMassMax);
   Double_t lMin = 0.0, lMax = 0.0, rMin = 0.0, rMax = 0.0;
   if (!alphaSingle) getChannelSidebandWindows(channelBase, lMin, lMax, rMin, rMax);
+  kmfWarnWindowOverlapOnce(fitMin, fitMax, sigMin, sigMax, alphaMassMin, alphaMassMax, alphaSingle);
   const Double_t kstarLo = h2Fse->GetYaxis()->GetBinLowEdge(iyFirst);
   const Double_t kstarHi = h2Fse->GetYaxis()->GetBinUpEdge(iyLast);
+  if (h2Fme && (h2Fme->GetYaxis()->GetBinLowEdge(iyFirst) != kstarLo ||
+                h2Fme->GetYaxis()->GetBinUpEdge(iyLast) != kstarHi)) {
+    std::cerr << "[checkHistAnaFemtoPhi] ERROR: kstarMassFitCF SE/ME k* merge mismatch for " << channelBase
+              << " " << slice.id << " iy=[" << iyFirst << "," << iyLast << "]" << std::endl;
+  }
 
   auto makeProj = [&](TH2* h2, const char* tag) -> TH1* {
     if (!h2) return 0;
@@ -3881,21 +3878,26 @@ static Bool_t drawMethod3BkgSubKstarPage(TCanvas* canvas, TFile* fin, const Femt
 
   // Rebin mass axis for SE and ME (F and B) before alpha, subtraction, and fit.
   auto rebinMass = [&](TH1* h) {
-    if (!h || kMethod3BkgSubMassRebin <= 1) return;
-    h->Rebin(kMethod3BkgSubMassRebin);
+    if (!h || kKmfMassRebin <= 1) return;
+    h->Rebin(kKmfMassRebin);
   };
   rebinMass(hFse);
   rebinMass(hFme);
   rebinMass(hBse);
   rebinMass(hBme);
 
-  auto buildScaledAndS = [&](TH1* hF, TH1* hB, Double_t& alphaOut, TH1*& hBscOut, TH1*& hSOut) {
+  auto buildScaledAndS = [&](TH1* hF, TH1* hB, Double_t& alphaOut, Double_t& alphaErrOut, TH1*& hBscOut, TH1*& hSOut) {
     alphaOut = 0.0;
+    alphaErrOut = 0.0;
     hBscOut = 0;
     hSOut = 0;
     if (!hF || !hB) return;
-    alphaOut = alphaSingle ? method3SidebandScaleSingle(hF, hB, alphaMassMin, alphaMassMax)
-                           : method3SidebandScale(hF, hB, lMin, lMax, rMin, rMax);
+    alphaOut = alphaSingle ? kmfAlphaFromSingleWindow(hF, hB, alphaMassMin, alphaMassMax, alphaErrOut)
+                           : kmfAlphaFromWindows(hF, hB, lMin, lMax, rMin, rMax, alphaErrOut);
+    if (!TMath::Finite(alphaOut) || !TMath::Finite(alphaErrOut)) {
+      alphaOut = 0.0;
+      alphaErrOut = 0.0;
+    }
     hBscOut = (TH1*)hB->Clone(Form("%s_scaled", hB->GetName()));
     hBscOut->SetDirectory(0);
     hBscOut->Scale(alphaOut);
@@ -3903,16 +3905,17 @@ static Bool_t drawMethod3BkgSubKstarPage(TCanvas* canvas, TFile* fin, const Femt
     hSOut = (TH1*)hF->Clone(Form("%s_sub", hF->GetName()));
     hSOut->SetDirectory(0);
     hSOut->Add(hBscOut, -1.0);
+    kmfApplyAlphaErrorToS(hSOut, hB, alphaErrOut);
     keepAlive.push_back(hSOut);
   };
 
-  Double_t aSE = 0.0, aME = 0.0;
+  Double_t aSE = 0.0, aME = 0.0, aSEerr = 0.0, aMEerr = 0.0;
   TH1 *hBscSE = 0, *hSSE = 0, *hBscME = 0, *hSME = 0;
-  buildScaledAndS(hFse, hBse, aSE, hBscSE, hSSE);
-  buildScaledAndS(hFme, hBme, aME, hBscME, hSME);
+  buildScaledAndS(hFse, hBse, aSE, aSEerr, hBscSE, hSSE);
+  buildScaledAndS(hFme, hBme, aME, aMEerr, hBscME, hSME);
 
   Bool_t okSE = kFALSE, okME = kFALSE;
-  Method3FitResult frSE, frME;
+  KstarMassFitCfFitResult frSE, frME;
 
   auto drawOverlay = [&](TH1* hF, TH1* hBsc, TH1* hS, const char* rowTag, Double_t alpha) {
     if (!hF && !hBsc && !hS) {
@@ -4017,7 +4020,7 @@ static Bool_t drawMethod3BkgSubKstarPage(TCanvas* canvas, TFile* fin, const Femt
   }
   canvas->cd(2);
   if (hBscSE) {
-    hBscSE->SetTitle(Form("SE #alpha B (#alpha=%.3f);#it{M}_{KK};Counts", aSE));
+    hBscSE->SetTitle(Form("SE #alpha B (#alpha=%.3f #pm %.3f);#it{M}_{KK};Counts", aSE, aSEerr));
     hBscSE->SetLineColor(kBlack);
     hBscSE->Draw("HIST");
   } else {
@@ -4056,7 +4059,7 @@ static Bool_t drawMethod3BkgSubKstarPage(TCanvas* canvas, TFile* fin, const Femt
   }
   canvas->cd(6);
   if (hBscME) {
-    hBscME->SetTitle(Form("ME #alpha B (#alpha=%.3f);#it{M}_{KK};Counts", aME));
+    hBscME->SetTitle(Form("ME #alpha B (#alpha=%.3f #pm %.3f);#it{M}_{KK};Counts", aME, aMEerr));
     hBscME->SetLineColor(kBlack);
     hBscME->Draw("HIST");
   } else {
@@ -4094,19 +4097,23 @@ static Bool_t drawMethod3BkgSubKstarPage(TCanvas* canvas, TFile* fin, const Femt
   title->DrawLatex(0.02, 0.985,
                    Form("%s  %s  template=%s  %.3f<k*<%.3f GeV/c  (x=%.3f)  Rebin(%d)  F | #alpha B | S+gaus | overlay",
                         channelBase.c_str(), slice.id.c_str(), templateTag, kstarLo, kstarHi, kstar,
-                        kMethod3BkgSubMassRebin));
+                        kKmfMassRebin));
   (void)minEntries;
   (void)fin;
   (void)slice;
 
-  if (nSigSE) *nSigSE = okSE ? frSE.nSig : 0.0;
-  if (eSigSE) *eSigSE = okSE ? frSE.errNSig : 0.0;
-  if (nSigME) *nSigME = okME ? frME.nSig : 0.0;
-  if (eSigME) *eSigME = okME ? frME.errNSig : 0.0;
-  return (okSE && okME && frSE.nSig > 0.0 && frME.nSig > 0.0);
+  const Int_t stSE = kmfYieldStatus(okSE, frSE.nSig, frSE.errNSig, kFALSE);
+  const Int_t stME = kmfYieldStatus(okME, frME.nSig, frME.errNSig, kFALSE);
+  if (nSigSE) *nSigSE = (stSE == kKmfStatusOk) ? frSE.nSig : 0.0;
+  if (eSigSE) *eSigSE = (stSE == kKmfStatusOk) ? frSE.errNSig : 0.0;
+  if (nSigME) *nSigME = (stME == kKmfStatusOk) ? frME.nSig : 0.0;
+  if (eSigME) *eSigME = (stME == kKmfStatusOk) ? frME.errNSig : 0.0;
+  if (statusSE) *statusSE = stSE;
+  if (statusME) *statusME = stME;
+  return (stSE == kKmfStatusOk && stME == kKmfStatusOk);
 }
 
-static void drawMethod3BkgSubCfPage(TCanvas* canvas, const FemtoConfig::CfCentSlice& slice,
+static void drawKstarMassFitCfPage(TCanvas* canvas, const FemtoConfig::CfCentSlice& slice,
                                     const std::string& channelBase, const char* templateTag,
                                     TGraphErrors* gNSE, TGraphErrors* gNME, TGraphErrors* gCF,
                                     TGraphErrors* gCFn) {
@@ -4191,37 +4198,81 @@ static void drawMethod3BkgSubCfPage(TCanvas* canvas, const FemtoConfig::CfCentSl
   title->SetTextSize(0.024);
   title->SetTextFont(62);
   title->DrawLatex(0.02, 0.985,
-                   Form("%s  %s  template=%s  Method3 bkg-sub CF (S=F-#alpha B yields)", channelBase.c_str(),
+                   Form("%s  %s  template=%s  kstarMassFitCF (S=F-#alpha B yields)", channelBase.c_str(),
                         slice.id.c_str(), templateTag));
 }
 
-static void drawMethod3BkgSubSection(TCanvas* canvas, TFile* fin, const TString& pdfPath,
+static void drawKstarMassFitCfCachedPages(TCanvas* canvas, const TString& pdfPath,
+                                          std::map<std::string, TGraphErrors*>& cfCache) {
+  if (!canvas || !isKstarMassFitCfEnabled()) return;
+  const Double_t kstarBinTarget = getKstarMassFitCfKstarBinTarget();
+  const std::string suf = kmfCacheSuffix(kstarBinTarget);
+  std::vector<std::string> templates;
+  getKstarMassFitCfTemplateOrder(templates);
+  const char* bases[] = {"phi_proton", "phi_deuteron", 0};
+  const char* rebinSliceIds[] = {"pct_0_10", "pct_0_20", "pct_0_30", 0};
+  const std::vector<FemtoConfig::CfCentSlice> allSlices = getCfCentSliceList();
+  for (size_t it = 0; it < templates.size(); ++it) {
+    const std::string tag = templates[it];
+    for (Int_t ib = 0; bases[ib]; ++ib) {
+      const std::string base(bases[ib]);
+      for (Int_t isl = 0; rebinSliceIds[isl]; ++isl) {
+        const FemtoConfig::CfCentSlice* slicePtr = 0;
+        for (size_t is = 0; is < allSlices.size(); ++is) {
+          if (allSlices[is].id == rebinSliceIds[isl]) {
+            slicePtr = &allSlices[is];
+            break;
+          }
+        }
+        if (!slicePtr) continue;
+        const std::string nSeKey =
+            cfSliceCacheKey(slicePtr->id, std::string("kmf_Y_SE_") + tag + "_" + base + suf);
+        const std::string nMeKey =
+            cfSliceCacheKey(slicePtr->id, std::string("kmf_Y_ME_") + tag + "_" + base + suf);
+        const std::string cfKey =
+            cfSliceCacheKey(slicePtr->id, std::string("CF_kmf_") + tag + "_" + base + suf + "_raw");
+        const std::string cfNormKey =
+            cfSliceCacheKey(slicePtr->id, std::string("CF_kmf_") + tag + "_" + base + suf + "_norm");
+        TGraphErrors* gNSE = cfCache.count(nSeKey) ? cfCache[nSeKey] : 0;
+        TGraphErrors* gNME = cfCache.count(nMeKey) ? cfCache[nMeKey] : 0;
+        TGraphErrors* gCF = cfCache.count(cfKey) ? cfCache[cfKey] : 0;
+        TGraphErrors* gCFn = cfCache.count(cfNormKey) ? cfCache[cfNormKey] : 0;
+        drawKstarMassFitCfPage(canvas, *slicePtr, base, tag.c_str(), gNSE, gNME, gCF, gCFn);
+        canvas->Print(pdfPath);
+      }
+    }
+  }
+}
+
+static void drawKstarMassFitCfSection(TCanvas* canvas, TFile* fin, const TString& pdfPath,
                                      std::vector<TH1*>& keepAlive, std::map<std::string, TGraphErrors*>& cfCache,
                                      std::map<std::string, Double_t>& metaCache) {
-  if (!canvas || !fin || !isMethod3Enabled()) return;
+  if (!canvas || !fin || !isKstarMassFitCfEnabled()) return;
 
-  const Double_t kstarBinTarget = getMethod3KstarBinTarget();
+  const Double_t kstarBinTarget = getKstarMassFitCfKstarBinTarget();
   if (kstarBinTarget <= 0.0) return;
 
   Double_t fitMin = 0.99, fitMax = 1.06, sigmaMin = 0.002, sigmaMax = 0.020;
   Double_t purityMinK = 0.0, purityMaxK = 0.65, clampMin = 0.05, clampMax = 1.0;
   Int_t minEntries = 20;
   Bool_t preferPol2 = kTRUE;
-  getMethod3FitConfig(fitMin, fitMax, sigmaMin, sigmaMax, purityMinK, purityMaxK, minEntries, clampMin, clampMax,
+  getKstarMassFitCfFitConfig(fitMin, fitMax, sigmaMin, sigmaMax, purityMinK, purityMaxK, minEntries, clampMin, clampMax,
                       preferPol2);
-  const std::string suf = method3CacheSuffix(kstarBinTarget);
+  const std::string suf = kmfCacheSuffix(kstarBinTarget);
 
   canvas->Clear();
   canvas->SetCanvasSize(1200, 900);
-  drawMethod3BkgSubGuidePage(canvas);
+  drawKstarMassFitCfGuidePage(canvas);
   canvas->Print(pdfPath);
 
   const char* bases[] = {"phi_proton", "phi_deuteron", 0};
-  const char* templates[] = {"rot", "mix", 0};
+  std::vector<std::string> templates;
+  getKstarMassFitCfTemplateOrder(templates);
   const char* rebinSliceIds[] = {"pct_0_10", "pct_0_20", "pct_0_30", 0};
   const std::vector<FemtoConfig::CfCentSlice> allSlices = getCfCentSliceList();
 
-  for (Int_t it = 0; templates[it]; ++it) {
+  for (size_t it = 0; it < templates.size(); ++it) {
+    const std::string tag = templates[it];
     for (Int_t ib = 0; bases[ib]; ++ib) {
       const std::string base(bases[ib]);
       for (Int_t isl = 0; rebinSliceIds[isl]; ++isl) {
@@ -4236,8 +4287,8 @@ static void drawMethod3BkgSubSection(TCanvas* canvas, TFile* fin, const TString&
 
         TH3* h3Fse = (TH3*)fin->Get(phiMkkVsKstarWideSeKey(base).c_str());
         TH3* h3Fme = (TH3*)fin->Get(phiMkkVsKstarWideMeKey(base).c_str());
-        TH3* h3Bse = (TH3*)fin->Get(method3BkgWideKey(base, templates[it], kTRUE).c_str());
-        TH3* h3Bme = (TH3*)fin->Get(method3BkgWideKey(base, templates[it], kFALSE).c_str());
+        TH3* h3Bse = (TH3*)fin->Get(kmfBkgWideKey(base, tag.c_str(), kTRUE).c_str());
+        TH3* h3Bme = (TH3*)fin->Get(kmfBkgWideKey(base, tag.c_str(), kFALSE).c_str());
         if (!h3Fse || !h3Fme || !h3Bse || !h3Bme) {
           canvas->Clear();
           canvas->cd(1);
@@ -4246,19 +4297,19 @@ static void drawMethod3BkgSubSection(TCanvas* canvas, TFile* fin, const TString&
           lat->SetTextSize(0.03);
           lat->DrawLatex(0.08, 0.55,
                          Form("%s %s template=%s: missing wide TH3 (need Maker re-run for MIX)", base.c_str(),
-                              slicePtr->id.c_str(), templates[it]));
+                              slicePtr->id.c_str(), tag.c_str()));
           lat->DrawLatex(0.08, 0.48, Form("F SE=%s ME=%s", phiMkkVsKstarWideSeKey(base).c_str(),
                                          phiMkkVsKstarWideMeKey(base).c_str()));
-          lat->DrawLatex(0.08, 0.41, Form("B SE=%s", method3BkgWideKey(base, templates[it], kTRUE).c_str()));
-          lat->DrawLatex(0.08, 0.34, Form("B ME=%s", method3BkgWideKey(base, templates[it], kFALSE).c_str()));
+          lat->DrawLatex(0.08, 0.41, Form("B SE=%s", kmfBkgWideKey(base, tag.c_str(), kTRUE).c_str()));
+          lat->DrawLatex(0.08, 0.34, Form("B ME=%s", kmfBkgWideKey(base, tag.c_str(), kFALSE).c_str()));
           canvas->Print(pdfPath);
           continue;
         }
 
-        TH2* h2Fse = projectMkkVsKstarForSlice(h3Fse, slicePtr->cent9Min, slicePtr->cent9Max, "_m3subFse");
-        TH2* h2Fme = projectMkkVsKstarForSlice(h3Fme, slicePtr->cent9Min, slicePtr->cent9Max, "_m3subFme");
-        TH2* h2Bse = projectMkkVsKstarForSlice(h3Bse, slicePtr->cent9Min, slicePtr->cent9Max, "_m3subBse");
-        TH2* h2Bme = projectMkkVsKstarForSlice(h3Bme, slicePtr->cent9Min, slicePtr->cent9Max, "_m3subBme");
+        TH2* h2Fse = projectMkkVsKstarForSlice(h3Fse, slicePtr->cent9Min, slicePtr->cent9Max, "_kmfFse");
+        TH2* h2Fme = projectMkkVsKstarForSlice(h3Fme, slicePtr->cent9Min, slicePtr->cent9Max, "_kmfFme");
+        TH2* h2Bse = projectMkkVsKstarForSlice(h3Bse, slicePtr->cent9Min, slicePtr->cent9Max, "_kmfBse");
+        TH2* h2Bme = projectMkkVsKstarForSlice(h3Bme, slicePtr->cent9Min, slicePtr->cent9Max, "_kmfBme");
         if (!h2Fse || !h2Fme || !h2Bse || !h2Bme) {
           delete h2Fse;
           delete h2Fme;
@@ -4266,7 +4317,17 @@ static void drawMethod3BkgSubSection(TCanvas* canvas, TFile* fin, const TString&
           delete h2Bme;
           continue;
         }
-        const Int_t kRebin = method3RebinFactorForWidth(h2Fse->GetYaxis()->GetBinWidth(1), kstarBinTarget);
+        if (h2Fse->GetNbinsY() != h2Fme->GetNbinsY() || h2Fse->GetNbinsY() != h2Bse->GetNbinsY() ||
+            h2Fse->GetNbinsY() != h2Bme->GetNbinsY()) {
+          std::cerr << "[checkHistAnaFemtoPhi] ERROR: kstarMassFitCF SE/ME TH2 k* binning mismatch for " << base
+                    << " " << slicePtr->id << " template=" << tag << std::endl;
+          delete h2Fse;
+          delete h2Fme;
+          delete h2Bse;
+          delete h2Bme;
+          continue;
+        }
+        const Int_t kRebin = kmfRebinFactorForWidth(h2Fse->GetYaxis()->GetBinWidth(1), kstarBinTarget);
         if (kRebin > 1) {
           h2Fse = (TH2*)h2Fse->RebinY(kRebin);
           h2Fme = (TH2*)h2Fme->RebinY(kRebin);
@@ -4274,90 +4335,130 @@ static void drawMethod3BkgSubSection(TCanvas* canvas, TFile* fin, const TString&
           h2Bme = (TH2*)h2Bme->RebinY(kRebin);
         }
 
-        std::vector<Double_t> kx, ySE, eSE, yME, eME, cfx, cfy, cfe;
+        std::vector<Double_t> kx, ySE, eSE, yME, eME, cfx, cfy, cfe, stx, sty;
         canvas->SetCanvasSize(2400, 1000);
-        const Int_t lowKstarMergeBins = getMethod3BkgSubLowKstarMergeBins();
+        const Int_t lowKstarMergeBins = getKstarMassFitCfLowKstarMergeBins();
         for (Int_t iy = 1; iy <= h2Fse->GetNbinsY(); ++iy) {
           const Int_t iyFirst = iy;
           const Int_t iyLast =
               (iyFirst == 1) ? TMath::Min(h2Fse->GetNbinsY(), lowKstarMergeBins) : iyFirst;
-          // Advance past every source bin consumed by the variable-width first point.
           iy = iyLast;
           const Double_t kstar =
               0.5 * (h2Fse->GetYaxis()->GetBinLowEdge(iyFirst) + h2Fse->GetYaxis()->GetBinUpEdge(iyLast));
           if (kstar < purityMinK || kstar > purityMaxK) continue;
           Double_t nF = h2Fse->Integral(1, h2Fse->GetNbinsX(), iyFirst, iyLast) +
                         h2Fme->Integral(1, h2Fme->GetNbinsX(), iyFirst, iyLast);
-          if (nF <= 0.0) continue;
+          Int_t stSE = kKmfStatusFitFail;
+          Int_t stME = kKmfStatusFitFail;
           Double_t nse = 0.0, ese = 0.0, nme = 0.0, eme = 0.0;
-          const Bool_t ok =
-              drawMethod3BkgSubKstarPage(canvas, fin, *slicePtr, base, templates[it], iyFirst, iyLast, kstar,
-                                         h2Fse, h2Fme, h2Bse, h2Bme, kstarBinTarget, keepAlive, &nse, &ese, &nme,
-                                         &eme);
+          const Bool_t lowStat = (nF < (Double_t)minEntries);
+          if (nF <= 0.0) {
+            stSE = kKmfStatusLowStat;
+            stME = kKmfStatusLowStat;
+            stx.push_back(kstar);
+            sty.push_back((Double_t)kKmfStatusLowStat);
+            continue;
+          }
+          drawKstarMassFitCfKstarPage(canvas, fin, *slicePtr, base, tag.c_str(), iyFirst, iyLast, kstar, h2Fse,
+                                      h2Fme, h2Bse, h2Bme, kstarBinTarget, keepAlive, &nse, &ese, &nme, &eme, &stSE,
+                                      &stME);
           canvas->Print(pdfPath);
-          if (!ok) continue;
+          if (lowStat) {
+            stSE = kKmfStatusLowStat;
+            stME = kKmfStatusLowStat;
+          }
+          stx.push_back(kstar);
+          const Int_t stPair = (stSE != kKmfStatusOk) ? stSE : stME;
+          sty.push_back((Double_t)stPair);
+          if (stSE != kKmfStatusOk || stME != kKmfStatusOk) continue;
+          if (!(nme > 0.0) || !TMath::Finite(nse) || !TMath::Finite(nme) || !TMath::Finite(ese) ||
+              !TMath::Finite(eme)) {
+            sty.back() = (Double_t)kKmfStatusNonFinite;
+            continue;
+          }
+          const Double_t cf = nse / nme;
+          const Double_t ecf =
+              cf * TMath::Sqrt(TMath::Power(ese / (nse + 1e-12), 2) + TMath::Power(eme / (nme + 1e-12), 2));
+          if (!TMath::Finite(cf) || !TMath::Finite(ecf)) {
+            sty.back() = (Double_t)kKmfStatusNonFinite;
+            continue;
+          }
           kx.push_back(kstar);
           ySE.push_back(nse);
           eSE.push_back(ese);
           yME.push_back(nme);
           eME.push_back(eme);
-          const Double_t cf = nse / nme;
-          const Double_t ecf =
-              cf * TMath::Sqrt(TMath::Power(ese / (nse + 1e-12), 2) + TMath::Power(eme / (nme + 1e-12), 2));
           cfx.push_back(kstar);
           cfy.push_back(cf);
           cfe.push_back(ecf);
         }
 
-        const std::string tag = templates[it];
         const std::string nSeKey =
-            cfSliceCacheKey(slicePtr->id, std::string("method3_bkgsub_Nsig_SE_") + tag + "_" + base + suf);
+            cfSliceCacheKey(slicePtr->id, std::string("kmf_Y_SE_") + tag + "_" + base + suf);
         const std::string nMeKey =
-            cfSliceCacheKey(slicePtr->id, std::string("method3_bkgsub_Nsig_ME_") + tag + "_" + base + suf);
+            cfSliceCacheKey(slicePtr->id, std::string("kmf_Y_ME_") + tag + "_" + base + suf);
         const std::string cfKey =
-            cfSliceCacheKey(slicePtr->id, std::string("CF_method3_bkgsub_") + tag + "_" + base + suf);
+            cfSliceCacheKey(slicePtr->id, std::string("CF_kmf_") + tag + "_" + base + suf + "_raw");
         const std::string cfNormKey =
-            cfSliceCacheKey(slicePtr->id, std::string("CF_method3_bkgsub_norm_") + tag + "_" + base + suf);
+            cfSliceCacheKey(slicePtr->id, std::string("CF_kmf_") + tag + "_" + base + suf + "_norm");
+        const std::string stKey =
+            cfSliceCacheKey(slicePtr->id, std::string("kmf_fitstatus_") + tag + "_" + base + suf);
 
         TGraphErrors* gNSE = 0;
         TGraphErrors* gNME = 0;
         TGraphErrors* gCF = 0;
         TGraphErrors* gCFn = 0;
+        if (!stx.empty()) {
+          TGraphErrors* gSt = new TGraphErrors((Int_t)stx.size(), &stx[0], &sty[0], 0, 0);
+          gSt->SetTitle(Form("kstarMassFitCF fit status %s %s %s", tag.c_str(), base.c_str(), slicePtr->id.c_str()));
+          cfCache[stKey] = gSt;
+        } else {
+          cfCache[stKey] = 0;
+        }
         if (!kx.empty()) {
           gNSE = new TGraphErrors((Int_t)kx.size(), &kx[0], &ySE[0], 0, &eSE[0]);
-          gNSE->SetTitle(Form("Y_{SE}^{S}(k*) bkgsub-%s %s %s", tag.c_str(), base.c_str(), slicePtr->id.c_str()));
+          gNSE->SetTitle(Form("Y_{SE}^{S}(k*) kmf-%s %s %s", tag.c_str(), base.c_str(), slicePtr->id.c_str()));
           cfCache[nSeKey] = gNSE;
           gNME = new TGraphErrors((Int_t)kx.size(), &kx[0], &yME[0], 0, &eME[0]);
-          gNME->SetTitle(Form("Y_{ME}^{S}(k*) bkgsub-%s %s %s", tag.c_str(), base.c_str(), slicePtr->id.c_str()));
+          gNME->SetTitle(Form("Y_{ME}^{S}(k*) kmf-%s %s %s", tag.c_str(), base.c_str(), slicePtr->id.c_str()));
           cfCache[nMeKey] = gNME;
           gCF = new TGraphErrors((Int_t)cfx.size(), &cfx[0], &cfy[0], 0, &cfe[0]);
-          gCF->SetTitle(Form("CF bkgsub-%s %s %s", tag.c_str(), base.c_str(), slicePtr->id.c_str()));
+          gCF->SetTitle(Form("CF_kmf %s %s %s", tag.c_str(), base.c_str(), slicePtr->id.c_str()));
           cfCache[cfKey] = gCF;
 
           const std::string chSig = channelSignal(base);
           const Double_t nQMin = channelNormQMin(chSig);
           const Double_t nQMax = channelNormQMax(chSig);
           Double_t sumC = 0.0;
+          Double_t sumE2 = 0.0;
           Int_t nNorm = 0;
           for (size_t i = 0; i < cfx.size(); ++i) {
             if (cfx[i] < nQMin || cfx[i] > nQMax) continue;
+            if (!TMath::Finite(cfy[i]) || !TMath::Finite(cfe[i])) continue;
             sumC += cfy[i];
+            sumE2 += cfe[i] * cfe[i];
             ++nNorm;
           }
-          if (nNorm > 0 && sumC > 0.0) {
-            const Double_t scale = (Double_t)nNorm / sumC;
+          if (nNorm > 0 && sumC > 0.0 && TMath::Finite(sumC)) {
+            const Double_t mean = sumC / (Double_t)nNorm;
+            const Double_t errMean = TMath::Sqrt(sumE2) / (Double_t)nNorm;
+            const Double_t scale = 1.0 / mean;
+            const Double_t errScale = errMean / (mean * mean);
             std::vector<Double_t> ny, ne;
             for (size_t i = 0; i < cfy.size(); ++i) {
               ny.push_back(cfy[i] * scale);
-              ne.push_back(cfe[i] * scale);
+              ne.push_back(TMath::Sqrt(TMath::Power(cfe[i] * scale, 2) + TMath::Power(cfy[i] * errScale, 2)));
             }
             gCFn = new TGraphErrors((Int_t)cfx.size(), &cfx[0], &ny[0], 0, &ne[0]);
-            gCFn->SetTitle(Form("CF_{norm} bkgsub-%s %s %s", tag.c_str(), base.c_str(), slicePtr->id.c_str()));
+            gCFn->SetTitle(Form("CF_{norm} kmf-%s %s %s", tag.c_str(), base.c_str(), slicePtr->id.c_str()));
             cfCache[cfNormKey] = gCFn;
-            metaCache[cfSliceCacheKey(slicePtr->id, std::string("method3_bkgsub_normScale_") + tag + "_" + base +
-                                                          suf)] = scale;
+            metaCache[cfSliceCacheKey(slicePtr->id, std::string("kmf_normScale_") + tag + "_" + base + suf)] = scale;
+            metaCache[cfSliceCacheKey(slicePtr->id, std::string("kmf_normScaleErr_") + tag + "_" + base + suf)] =
+                errScale;
           } else {
             cfCache[cfNormKey] = 0;
+            metaCache[cfSliceCacheKey(slicePtr->id, std::string("kmf_normFail_") + tag + "_" + base + suf)] =
+                (Double_t)kKmfStatusNormFail;
           }
         } else {
           cfCache[nSeKey] = 0;
@@ -4365,10 +4466,10 @@ static void drawMethod3BkgSubSection(TCanvas* canvas, TFile* fin, const TString&
           cfCache[cfKey] = 0;
           cfCache[cfNormKey] = 0;
         }
-        metaCache[cfSliceCacheKey(slicePtr->id, std::string("method3_bkgsub_nOk_") + tag + "_" + base + suf)] =
+        metaCache[cfSliceCacheKey(slicePtr->id, std::string("kmf_nOk_") + tag + "_" + base + suf)] =
             (Double_t)cfx.size();
 
-        drawMethod3BkgSubCfPage(canvas, *slicePtr, base, templates[it], gNSE, gNME, gCF, gCFn);
+        drawKstarMassFitCfPage(canvas, *slicePtr, base, tag.c_str(), gNSE, gNME, gCF, gCFn);
         canvas->Print(pdfPath);
 
         delete h2Fse;
@@ -4383,26 +4484,27 @@ static void drawMethod3BkgSubSection(TCanvas* canvas, TFile* fin, const TString&
   (void)preferPol2;
 }
 
-static void writeMethod3SidecarRoot(const TString& outDir, const TString& anaName, const TString& jobid,
+
+static void writeKstarMassFitCfSidecarRoot(const TString& outDir, const TString& anaName, const TString& jobid,
                                     const Char_t* inputRootFile, const Char_t* mainconfPath,
                                     std::map<std::string, TGraphErrors*>& cfCache,
                                     const std::map<std::string, Double_t>& metaCache) {
-  if (!isMethod3WriteSidecar()) return;
+  if (!isKstarMassFitCfWriteSidecar()) return;
 
-  TString outPath = outDir + anaName + "_checkHistAnaFemtoPhi_CFmethod3";
+  TString outPath = outDir + anaName + "_checkHistAnaFemtoPhi_CFkmf";
   if (jobid.Length()) outPath += "_" + jobid;
   outPath += ".root";
 
   TFile* fout = TFile::Open(outPath, "RECREATE");
   if (!fout || fout->IsZombie()) {
-    std::cerr << "[checkHistAnaFemtoPhi] WARNING: cannot write Method3 sidecar " << outPath << std::endl;
+    std::cerr << "[checkHistAnaFemtoPhi] WARNING: cannot write kstarMassFitCF sidecar " << outPath << std::endl;
     return;
   }
 
   for (std::map<std::string, TGraphErrors*>::iterator it = cfCache.begin(); it != cfCache.end(); ++it) {
     if (!it->second) continue;
     const std::string& key = it->first;
-    if (key.find("method3_") == std::string::npos && key.find("CF_method3_") == std::string::npos) continue;
+    if (key.find("CF_kmf_") == std::string::npos && key.find("kmf_") == std::string::npos) continue;
     TGraphErrors* clone = (TGraphErrors*)it->second->Clone(sanitizeGraphName(key));
     if (clone) {
       clone->Write();
@@ -4410,7 +4512,7 @@ static void writeMethod3SidecarRoot(const TString& outDir, const TString& anaNam
     }
   }
   for (std::map<std::string, Double_t>::const_iterator it = metaCache.begin(); it != metaCache.end(); ++it) {
-    if (it->first.find("method3_") == std::string::npos) continue;
+    if (it->first.find("kmf_") == std::string::npos) continue;
     TParameter<Double_t> p(sanitizeGraphName(it->first), it->second);
     p.Write();
   }
@@ -4421,23 +4523,28 @@ static void writeMethod3SidecarRoot(const TString& outDir, const TString& anaNam
   metaMain.Write();
   TNamed metaJob("meta_jobid", jobid.Data());
   metaJob.Write();
-  TNamed metaMode("meta_cfDirectPurityMode",
-                  gConfigLoaded ? ConfigManager::GetInstance().GetFemtoConfig().cfDirectPurityMode.c_str() : "none");
-  metaMode.Write();
   if (gConfigLoaded) {
     const FemtoConfig& fc = ConfigManager::GetInstance().GetFemtoConfig();
-    TNamed metaFit("meta_purityDirectFitModel", fc.purityDirectFitModel.c_str());
-    metaFit.Write();
-    TParameter<Double_t> pMin("meta_purityDirectFitMassMin", fc.purityDirectFitMassMin);
+    TNamed metaEn("meta_kstarMassFitCfEnabled", fc.kstarMassFitCfEnabled ? "true" : "false");
+    metaEn.Write();
+    TNamed metaTpl("meta_kstarMassFitCfTemplate", fc.kstarMassFitCfTemplate.c_str());
+    metaTpl.Write();
+    TNamed metaX("meta_kstarMassFitCfCrossCheck", fc.kstarMassFitCfCrossCheck ? "true" : "false");
+    metaX.Write();
+    TParameter<Double_t> pMin("meta_kstarMassFitCfFitMassMin", fc.kstarMassFitCfFitMassMin);
     pMin.Write();
-    TParameter<Double_t> pMax("meta_purityDirectFitMassMax", fc.purityDirectFitMassMax);
+    TParameter<Double_t> pMax("meta_kstarMassFitCfFitMassMax", fc.kstarMassFitCfFitMassMax);
     pMax.Write();
-    TParameter<Double_t> pDk("meta_purityDirectKstarBinWidth", fc.purityDirectKstarBinWidth);
+    TParameter<Double_t> pDk("meta_kstarMassFitCfKstarBinWidth", fc.kstarMassFitCfKstarBinWidth);
     pDk.Write();
+    TParameter<Double_t> pA0("meta_kstarMassFitCfAlphaMassMin", fc.kstarMassFitCfAlphaMassMin);
+    pA0.Write();
+    TParameter<Double_t> pA1("meta_kstarMassFitCfAlphaMassMax", fc.kstarMassFitCfAlphaMassMax);
+    pA1.Write();
   }
   fout->Close();
   delete fout;
-  std::cout << "Done. Method3 sidecar: " << outPath << std::endl;
+  std::cout << "Done. kstarMassFitCF sidecar: " << outPath << std::endl;
 }
 
 static void drawCfSubMethod5GuidePage(TCanvas* canvas) {
@@ -5205,17 +5312,22 @@ void checkHistAnaFemtoPhi(const Char_t* inputRootFile,
           "Distinct from CF_genuine (ME-mass C_bkg). Existing count-level CF_sig_sub_* kept. "
           "One guide page precedes method5 4-panel slice pages. "
           "Last page: phi M_KK SE vs k*-norm-scaled ME for pct_0_10 (TH3 projection).\n";
-  note += "Method 3 (direct purity): gaus+pol2 per k* on hPhiMKK_vs_KstarSE/ME_*_wide; "
-          "CF_direct = Nsig_SE/Nsig_ME (no sideband CF). Distinct from Topic 3 and CF-Sub. "
-          "k* = half relative momentum in pair CM. Exemplar fit pages: high/low-stat k*.\n";
+  note += "Primary CF is kstarMassFitCF: per-k* full M_KK, S=F-αB (ROT default, MIX cross-check), "
+          "C_raw = Y_SE/Y_ME, C_norm in channel normQMin-normQMax. "
+          "QA PDF: ..._kstarMassFitCf[_jobid].pdf; sidecar ..._CFkmf[_jobid].root. "
+          "Simple SE/ME ratio in this PDF is diagnostic only.\n";
+  note += "legacyCfPagesEnabled=false omits Topic 3, direct mass-fit, and Method 5 pages.\n";
   if (gConfigLoaded) {
     const FemtoConfig& fc = ConfigManager::GetInstance().GetFemtoConfig();
     note += Form("method5 YAML: mode=%s purityMode=%s combine=%s lowStatsRebinExtra=%d writeSidecar=%s\n",
                  fc.cfSubtractionMode.c_str(), fc.cfSubPurityMode.c_str(), fc.cfSubSidebandCombine.c_str(),
                  fc.cfSubLowStatsRebinExtra, fc.cfSubWriteSidecarRoot ? "true" : "false");
-    note += Form("Method3 YAML: mode=%s fitModel=%s fitMass=[%.3f,%.3f] kstarBinWidth=%.3f writeSidecar=%s\n",
-                 fc.cfDirectPurityMode.c_str(), fc.purityDirectFitModel.c_str(), fc.purityDirectFitMassMin,
-                 fc.purityDirectFitMassMax, fc.purityDirectKstarBinWidth, fc.cfDirectWriteSidecar ? "true" : "false");
+    note += Form("kstarMassFitCF YAML: enabled=%s template=%s crossCheck=%s fitMass=[%.3f,%.3f] "
+                 "kstarBinWidth=%.3f writeSidecar=%s\n",
+                 fc.kstarMassFitCfEnabled ? "true" : "false", fc.kstarMassFitCfTemplate.c_str(),
+                 fc.kstarMassFitCfCrossCheck ? "true" : "false", fc.kstarMassFitCfFitMassMin,
+                 fc.kstarMassFitCfFitMassMax, fc.kstarMassFitCfKstarBinWidth,
+                 fc.kstarMassFitCfWriteSidecar ? "true" : "false");
   }
   note += "Re-run analysis after hist/Maker changes so new keys exist in the ROOT file.\n";
   note += "Phi-daughter production PID is charge-independent (PassPhiDaughterTofPid): "
@@ -5229,7 +5341,7 @@ void checkHistAnaFemtoPhi(const Char_t* inputRootFile,
 
   std::map<std::string, TGraphErrors*> cfCache;
   std::map<std::string, Double_t> purityCache;
-  std::map<std::string, Double_t> method3MetaCache;
+  std::map<std::string, Double_t> kmfMetaCache;
   std::vector<TH1*> centProjKeepAlive;
   populateCfCache(fin, cfCache);
   populateCfCentCache(fin, cfCache);
@@ -5237,7 +5349,19 @@ void checkHistAnaFemtoPhi(const Char_t* inputRootFile,
   populatePurityGenuineCaches(fin, cfCache);
   populateMethod5Caches(fin, cfCache, purityCache);
   dumpMethod5ConfigLog(purityCache);
-  populateMethod3Caches(fin, cfCache, method3MetaCache);
+  populateDirectMassFitCaches(fin, cfCache, kmfMetaCache);
+
+  TString kmfPdf;
+  if (isKstarMassFitCfEnabled()) {
+    kmfPdf = TString(outDir) + anaName + "_checkHistAnaFemtoPhi_kstarMassFitCf";
+    if (jobid.Length()) kmfPdf += "_" + jobid;
+    kmfPdf += ".pdf";
+    PdfHeader::OpenPdf(kmfPdf);
+    TCanvas* cKmf = new TCanvas("cKmf", "kstarMassFitCf", 1200, 800);
+    drawKstarMassFitCfSection(cKmf, fin, kmfPdf, centProjKeepAlive, cfCache, kmfMetaCache);
+    PdfHeader::ClosePdf(kmfPdf);
+    delete cKmf;
+  }
 
   PdfHeader::MakePdfHeaderPage(pdfName, "checkHistAnaFemtoPhi.C", inputs, note.Data(), true, anaName);
 
@@ -6105,8 +6229,14 @@ void checkHistAnaFemtoPhi(const Char_t* inputRootFile,
     c1->SetCanvasSize(1200, 800);
   }
 
+  // Primary CF (kstarMassFitCF): default template first, then cross-check if enabled.
+  if (isKstarMassFitCfEnabled()) {
+    drawKstarMassFitCfCachedPages(c1, pdfName, cfCache);
+    c1->SetCanvasSize(1200, 800);
+  }
+
   // Topic 3: lambda_sig and CF_genuine QA (representative slices x channel bases)
-  {
+  if (isLegacyCfPagesEnabled()) {
     const std::vector<FemtoConfig::CfCentSlice> allSlices = getCfCentSliceList();
     c1->SetCanvasSize(1400, 700);
     for (size_t is = 0; is < allSlices.size(); ++is) {
@@ -6127,16 +6257,16 @@ void checkHistAnaFemtoPhi(const Char_t* inputRootFile,
     c1->SetCanvasSize(1400, 700);
     for (Int_t ib = 0; kKuboBases[ib]; ++ib) {
       drawKuboPagesForBase(c1, fin, std::string(kKuboBases[ib]), pdfName, cfCache);
-      drawMethod3KuboClosureForBase(c1, fin, std::string(kKuboBases[ib]), pdfName, cfCache, method3MetaCache);
+      drawDirectMassFitKuboClosureForBase(c1, fin, std::string(kKuboBases[ib]), pdfName, cfCache, kmfMetaCache);
     }
     c1->SetCanvasSize(1200, 800);
   }
 
-  // Method 3: direct purity pages (after Topic 3, before CF-Sub)
-  if (isMethod3Enabled()) {
+  // Legacy: direct mass-fit pages (after Topic 3, before CF-Sub)
+  if (isLegacyCfPagesEnabled()) {
     c1->Clear();
     c1->SetCanvasSize(1200, 900);
-    drawMethod3GuidePage(c1);
+    drawDirectMassFitGuidePage(c1);
     c1->Print(pdfName);
 
     const std::vector<FemtoConfig::CfCentSlice> allSlices = getCfCentSliceList();
@@ -6145,9 +6275,9 @@ void checkHistAnaFemtoPhi(const Char_t* inputRootFile,
       if (!isSliceInQaPdf(allSlices[is].id)) continue;
       for (Int_t ib = 0; kChannelBases[ib]; ++ib) {
         const std::string base(kChannelBases[ib]);
-        drawMethod3SlicePageForBase(c1, fin, allSlices[is], base, cfCache, method3MetaCache);
+        drawDirectMassFitSlicePageForBase(c1, fin, allSlices[is], base, cfCache, kmfMetaCache);
         c1->Print(pdfName);
-        drawMethod3FitExemplarPageForBase(c1, fin, allSlices[is], base, method3MetaCache, centProjKeepAlive);
+        drawDirectMassFitExemplarPageForBase(c1, fin, allSlices[is], base, kmfMetaCache, centProjKeepAlive);
         c1->Print(pdfName);
       }
     }
@@ -6185,26 +6315,7 @@ void checkHistAnaFemtoPhi(const Char_t* inputRootFile,
 
   writeCfSubSidecarRoot(outDir, anaName, jobid, inputRootFile, mainconfPath, cfCache, purityCache);
 
-  // Separate PDF: Method 3 all-k* mass fits, one page per base x centrality slice
-  // (every k* bin with entries, SE and ME side by side). All combinations in one file.
-  TString method3AllKstarPdf;
-  if (isMethod3Enabled()) {
-    method3AllKstarPdf = TString(outDir) + anaName + "_checkHistAnaFemtoPhi_Method3AllKstar";
-    if (jobid.Length()) method3AllKstarPdf += "_" + jobid;
-    method3AllKstarPdf += ".pdf";
-
-    PdfHeader::OpenPdf(method3AllKstarPdf);
-    c1->Clear();
-    // Omit native / k*-rebinned all-k* fit+purity pages (~p1-180); keep only ROT/MIX
-    // mass-background subtraction QA (+ CF from S), with mass Rebin(kMethod3BkgSubMassRebin).
-    drawMethod3BkgSubSection(c1, fin, method3AllKstarPdf, centProjKeepAlive, cfCache, method3MetaCache);
-
-    c1->SetCanvasSize(1200, 800);
-    PdfHeader::ClosePdf(method3AllKstarPdf);
-  }
-
-  // Method3 sidecar after AllKstar so bkgsub CF graphs are included.
-  writeMethod3SidecarRoot(outDir, anaName, jobid, inputRootFile, mainconfPath, cfCache, method3MetaCache);
+  writeKstarMassFitCfSidecarRoot(outDir, anaName, jobid, inputRootFile, mainconfPath, cfCache, kmfMetaCache);
 
 
 
@@ -6374,8 +6485,8 @@ void checkHistAnaFemtoPhi(const Char_t* inputRootFile,
   fin->Close();
 
   std::cout << "Done. QA PDF: " << pdfName.Data() << std::endl;
-  if (method3AllKstarPdf.Length()) {
-    std::cout << "Done. Method3 all-k* fits PDF: " << method3AllKstarPdf.Data() << std::endl;
+  if (kmfPdf.Length()) {
+    std::cout << "Done. kstarMassFitCF PDF: " << kmfPdf.Data() << std::endl;
   }
   if (isCfSubWriteSidecar() && isMethod5Enabled()) {
     TString sidecar = TString(outDir) + anaName + "_checkHistAnaFemtoPhi_CFsub";
