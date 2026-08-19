@@ -151,6 +151,7 @@ void FemtoConfig::SetDefaults() {
   fullyMixedSpeciesKey = "phi_mix";
   fullyMixedParticleKey = "phi_fully_mixed";
   fullyMixedMaxCandidates = 2000;
+  fullyMixedSamplingSeed = 314159;
   rotationSpeciesKey = "phi_rot";
   rotationParticleKey = "phi_rotation";
   rotationN = 10;
@@ -498,6 +499,9 @@ void FemtoConfig::ApplyYamlValues(const std::map<std::string, std::string>& valu
   if (values.find("fullyMixedMaxCandidates") != values.end()) {
     fullyMixedMaxCandidates = YamlParser::ToInt(values.at("fullyMixedMaxCandidates"), fullyMixedMaxCandidates);
   }
+  if (values.find("fullyMixedSamplingSeed") != values.end()) {
+    fullyMixedSamplingSeed = YamlParser::ToInt(values.at("fullyMixedSamplingSeed"), fullyMixedSamplingSeed);
+  }
   if (values.find("cfRebinFactor") != values.end()) cfRebinFactor = YamlParser::ToInt(values.at("cfRebinFactor"), cfRebinFactor);
   if (values.find("cfCent9Min") != values.end()) cfCent9Min = YamlParser::ToInt(values.at("cfCent9Min"), cfCent9Min);
   if (values.find("cfCent9Max") != values.end()) cfCent9Max = YamlParser::ToInt(values.at("cfCent9Max"), cfCent9Max);
@@ -768,6 +772,16 @@ Bool_t FemtoConfig::Validate() const {
     std::cerr << "ERROR: FemtoConfig fullyMixedEnabled requires species phikaon_plus and phikaon_minus"
               << std::endl;
     ok = kFALSE;
+  }
+  if (fullyMixedSamplingSeed < 0) {
+    std::cerr << "ERROR: FemtoConfig fullyMixedSamplingSeed must be >= 0 (got " << fullyMixedSamplingSeed
+              << ")" << std::endl;
+    ok = kFALSE;
+  }
+  if (fullyMixedEnabled && fullyMixedSamplingSeed == 0) {
+    std::cerr << "WARNING: FemtoConfig fullyMixedSamplingSeed=0 uses a time-based RNG seed; "
+                 "phi_mix sampling is not reproducible. Production YAML should set a fixed non-zero seed."
+              << std::endl;
   }
   if (cfRebinFactor < 1) {
     std::cerr << "ERROR: FemtoConfig cfRebinFactor must be >= 1 (got " << cfRebinFactor << ")" << std::endl;

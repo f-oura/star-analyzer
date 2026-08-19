@@ -5221,6 +5221,11 @@ void checkHistAnaFemtoPhi(const Char_t* inputRootFile,
   note += "Phi-daughter production PID is charge-independent (PassPhiDaughterTofPid): "
           "low p allows TPC-only, high p requires TOF. Loose QA remains TPC-based. "
           "hPhiDauPid_* and hPhiDauPidUsed_{real,rot,mix}_* compare K+/K- and real/ROT/MIX.\n";
+  note += "phi_mix sampling: lazy uniform permutation of production-PID pair indices "
+          "(current K+ x buffer K- and buffer K+ x current K- combined). "
+          "Cap is stored candidates per current event. No sampling weights. "
+          "NPairPopulation is exact; NEligibleExact is valid only on a full scan. "
+          "hPhiMix_MKK is stored candidates only. Uncapped is validation-only.\n";
 
   std::map<std::string, TGraphErrors*> cfCache;
   std::map<std::string, Double_t> purityCache;
@@ -5766,6 +5771,41 @@ void checkHistAnaFemtoPhi(const Char_t* inputRootFile,
   c1->cd(6); gPad->SetLogz(); h2 = (TH2*)fin->Get("hPhiDauPidUsed_TofMatchVsP_mix_Km"); if (h2) h2->Draw("colz");
   c1->Print(pdfName);
 
+  // Page 10mix: phi_mix sampling / cap QA (null-safe for older ROOT files)
+  c1->Clear();
+  c1->Divide(3, 3);
+  c1->cd(1);
+  h1 = (TH1*)fin->Get("hPhiMix_PairPopulationLog10");
+  if (h1) { gPad->SetLogy(); h1->Draw(); }
+  c1->cd(2);
+  h1 = (TH1*)fin->Get("hPhiMix_AttemptedLog10");
+  if (h1) { gPad->SetLogy(); h1->Draw(); }
+  c1->cd(3);
+  h1 = (TH1*)fin->Get("hPhiMix_NStoredWide");
+  if (h1) { gPad->SetLogy(); h1->Draw(); }
+  c1->cd(4);
+  h1 = (TH1*)fin->Get("hPhiMix_CapHit");
+  if (h1) h1->Draw();
+  c1->cd(5);
+  h1 = (TH1*)fin->Get("hPhiMix_KeepFraction");
+  if (h1) h1->Draw();
+  c1->cd(6);
+  h1 = (TH1*)fin->Get("hPhiMix_FwdRevRatio");
+  if (h1) h1->Draw();
+  c1->cd(7);
+  h1 = (TH1*)fin->Get("hPhiMix_MKK");
+  if (h1) { gPad->SetLogy(); h1->Draw(); }
+  c1->cd(8);
+  h1 = (TH1*)fin->Get("hPhiMix_NCand");
+  if (h1) h1->Draw();
+  c1->cd(9);
+  h2 = (TH2*)fin->Get("hPhiMixSamplerQA");
+  if (h2) {
+    gPad->SetLogz();
+    h2->Draw("colz");
+  }
+  c1->Print(pdfName);
+
   // Page 10b: K- femto candidate QA (used when kaon-minus species is enabled)
   c1->Clear();
   c1->Divide(3, 2);
@@ -6197,6 +6237,12 @@ void checkHistAnaFemtoPhi(const Char_t* inputRootFile,
                            "hPhi_MKK_rot",
                            "hPhi_MKK_vs_BetaGamma",
                            "hPhiRot_MKK",
+                           "hPhiMix_MKK",
+                           "hPhiMix_NCand",
+                           "hPhiMix_NStoredWide",
+                           "hPhiMix_CapHit",
+                           "hPhiMix_KeepFraction",
+                           "hPhiMixSamplerQA",
                            "hPhi_NCand",
                            "hP_Pt_PreFemtoCut",
                            "hP_Pt",

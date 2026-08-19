@@ -2,6 +2,7 @@
 #include "ConfigManager.h"
 #include "HistManager.h"
 #include "FemtoMixingSampler.h"
+#include "FemtoPhiMixSampler.h"
 #include "kinematics.h"
 #include "cuts/EventCutConfig.h"
 #include "cuts/TrackCutConfig.h"
@@ -34,6 +35,8 @@
 #include "TRandom.h"
 #include <iostream>
 #include <sstream>
+#include <ctime>
+#include <stdexcept>
 #include <vector>
 
 namespace {
@@ -67,7 +70,8 @@ StFemtoMaker::StFemtoMaker(const char* name, StPicoDstMaker* picoMaker, const ch
       m_refMultCorr(-1.0),
       m_centWeight(1.0),
       m_centralityPercent(-1.0),
-      m_psi2(-1.0) {}
+      m_psi2(-1.0),
+      m_phiMixSeedUsed(0) {}
 
 StFemtoMaker::~StFemtoMaker() {
   if (m_centrality) {
@@ -122,6 +126,21 @@ Int_t StFemtoMaker::Init() {
   const FemtoConfig& femtoCfg = ConfigManager::GetInstance().GetFemtoConfig();
   if (femtoCfg.rotationEnabled && femtoCfg.rotationSeed != 0) {
     gRandom->SetSeed(femtoCfg.rotationSeed);
+  }
+
+  m_phiMixSeedUsed = 0;
+  if (femtoCfg.fullyMixedEnabled) {
+    if (femtoCfg.fullyMixedSamplingSeed > 0) {
+      m_phiMixSeedUsed = static_cast<UInt_t>(femtoCfg.fullyMixedSamplingSeed);
+    } else {
+      m_phiMixSeedUsed = static_cast<UInt_t>(time(0));
+      if (m_phiMixSeedUsed == 0) m_phiMixSeedUsed = 1;
+      std::cerr << "[StFemtoMaker] fullyMixedSamplingSeed=0; using time-based phi_mix seed "
+                << m_phiMixSeedUsed << std::endl;
+    }
+    m_phiMixRng.Seed(static_cast<femto_phi_mix::PairCount>(m_phiMixSeedUsed));
+    std::cout << "[StFemtoMaker] phi_mix sampling RNG seed=" << m_phiMixSeedUsed
+              << " cap=" << femtoCfg.fullyMixedMaxCandidates << std::endl;
   }
 
   return kStOK;
@@ -1703,101 +1722,230 @@ void StFemtoMaker::BuildFullyMixedPhiCandidates(const std::string& speciesKey,
   const std::deque<FemtoMixingEvent>& pool = poolIt->second;
 
   const Double_t mK = StPhiKKReconstruction::KaonMass();
-  Int_t nCand = 0;
-  const Int_t maxCand = fc.fullyMixedMaxCandidates;
+  const femto_phi_mix::PairCount maxCand =
+      (fc.fullyMixedMaxCandidates > 0) ? static_cast<femto_phi_mix::PairCount>(fc.fullyMixedMaxCandidates) : 0;
 
-  auto tryPushPair = [&](const TLorentzVector& pKp4, const TLorentzVector& pKm4, Int_t dau1EventIndex,
-                         Int_t dau1Idx, Int_t dau2EventIndex, Int_t dau2Idx) -> Bool_t {
-    if (maxCand > 0 && nCand >= maxCand) return kFALSE;
+  std::vector<const TrackState*> curKp;
+  std::vector<const TrackState*> curKm;
+  curKp.reserve(kaonsPlus.size());
+  curKm.reserve(kaonsMinus.size());
+  for (size_t i = 0; i < kaonsPlus.size(); ++i) {
+    if (PassPhiDaughterTofPid(kaonsPlus[i])) curKp.push_back(&kaonsPlus[i]);
+  }
+  for (size_t i = 0; i < kaonsMinus.size(); ++i) {
+    if (PassPhiDaughterTofPid(kaonsMinus[i])) curKm.push_back(&kaonsMinus[i]);
+  }
+
+  struct PoolSides {
+    std::vector<const FemtoCandidate*> kp;
+    std::vector<const FemtoCandidate*> km;
+  };
+  std::vector<PoolSides> poolPid(pool.size());
+  std::vector<femto_mixing::EventCandidateCounts> rawCounts;
+  std::vector<femto_mixing::EventCandidateCounts> pidCounts;
+  rawCounts.reserve(pool.size());
+  pidCounts.reserve(pool.size());
+  femto_phi_mix::PairCount nPidBufKp = 0;
+  femto_phi_mix::PairCount nPidBufKm = 0;
+
+  for (size_t ie = 0; ie < pool.size(); ++ie) {
+    FemtoCandidateStore::const_iterator itKp = pool[ie].candidates.find("phikaon_plus");
+    FemtoCandidateStore::const_iterator itKm = pool[ie].candidates.find("phikaon_minus");
+    const std::size_t nRawKp =
+        (itKp != pool[ie].candidates.end()) ? itKp->second.size() : 0;
+    const std::size_t nRawKm =
+        (itKm != pool[ie].candidates.end()) ? itKm->second.size() : 0;
+    rawCounts.push_back(femto_mixing::EventCandidateCounts(nRawKp, nRawKm));
+    if (itKp != pool[ie].candidates.end()) {
+      for (size_t i = 0; i < itKp->second.size(); ++i) {
+        if (PassPhiDaughterTofPid(itKp->second[i])) poolPid[ie].kp.push_back(&itKp->second[i]);
+      }
+    }
+    if (itKm != pool[ie].candidates.end()) {
+      for (size_t i = 0; i < itKm->second.size(); ++i) {
+        if (PassPhiDaughterTofPid(itKm->second[i])) poolPid[ie].km.push_back(&itKm->second[i]);
+      }
+    }
+    pidCounts.push_back(femto_mixing::EventCandidateCounts(poolPid[ie].kp.size(), poolPid[ie].km.size()));
+    nPidBufKp += static_cast<femto_phi_mix::PairCount>(poolPid[ie].kp.size());
+    nPidBufKm += static_cast<femto_phi_mix::PairCount>(poolPid[ie].km.size());
+  }
+
+  femto_mixing::SamplingPlan planPrePid;
+  femto_mixing::SamplingPlan plan;
+  try {
+    planPrePid = femto_mixing::BuildSamplingPlan(kaonsPlus.size(), kaonsMinus.size(), rawCounts, true);
+    plan = femto_mixing::BuildSamplingPlan(curKp.size(), curKm.size(), pidCounts, true);
+  } catch (const std::overflow_error& e) {
+    std::cerr << "[StFemtoMaker] phi_mix pair-count overflow: " << e.what() << std::endl;
+    return;
+  }
+
+  struct MixTemp {
+    FemtoCandidate cand;
+    Bool_t reverse;
+    Float_t kpP, kmP, kpM2, kmM2;
+    Bool_t kpTof, kmTof;
+  };
+  std::vector<MixTemp> accepted;
+  accepted.reserve(maxCand > 0 ? static_cast<size_t>(maxCand) : 64);
+
+  auto kaonP4FromTrack = [&](const TrackState& trk) -> TLorentzVector {
+    TVector3 p = TrackMomentum(trk);
+    return TLorentzVector(p.X(), p.Y(), p.Z(), TMath::Sqrt(mK * mK + p.Mag2()));
+  };
+
+  auto evaluatePair = [&](femto_phi_mix::PairCount, const femto_mixing::PairReference& ref) -> femto_phi_mix::EvalStatus {
+    if (ref.poolEventIndex >= poolPid.size()) return femto_phi_mix::kEvalResolveFail;
+    const PoolSides& buf = poolPid[ref.poolEventIndex];
+    const TrackState* curPlus = 0;
+    const TrackState* curMinus = 0;
+    const FemtoCandidate* bufPlus = 0;
+    const FemtoCandidate* bufMinus = 0;
+    TLorentzVector pKp4;
+    TLorentzVector pKm4;
+    Int_t dau1Event = -1, dau1Idx = -1, dau2Event = -1, dau2Idx = -1;
+    MixTemp tmp;
+    tmp.reverse = ref.reverse ? kTRUE : kFALSE;
+
+    if (!ref.reverse) {
+      if (ref.firstIndex >= curKp.size() || ref.secondIndex >= buf.km.size()) return femto_phi_mix::kEvalResolveFail;
+      curPlus = curKp[ref.firstIndex];
+      bufMinus = buf.km[ref.secondIndex];
+      pKp4 = kaonP4FromTrack(*curPlus);
+      pKm4 = CandidateP4(*bufMinus);
+      dau1Event = eventIndex;
+      dau1Idx = curPlus->trackIndex;
+      dau2Event = bufMinus->eventIndex;
+      dau2Idx = bufMinus->trk.trackIndex;
+      tmp.kpP = (Float_t)pKp4.P();
+      tmp.kmP = (Float_t)pKm4.P();
+      tmp.kpTof = curPlus->tofMatch;
+      tmp.kmTof = bufMinus->trk.tofMatch;
+      tmp.kpM2 = curPlus->mass2;
+      tmp.kmM2 = bufMinus->trk.mass2;
+    } else {
+      if (ref.firstIndex >= buf.kp.size() || ref.secondIndex >= curKm.size()) return femto_phi_mix::kEvalResolveFail;
+      bufPlus = buf.kp[ref.firstIndex];
+      curMinus = curKm[ref.secondIndex];
+      pKp4 = CandidateP4(*bufPlus);
+      pKm4 = kaonP4FromTrack(*curMinus);
+      dau1Event = bufPlus->eventIndex;
+      dau1Idx = bufPlus->trk.trackIndex;
+      dau2Event = eventIndex;
+      dau2Idx = curMinus->trackIndex;
+      tmp.kpP = (Float_t)pKp4.P();
+      tmp.kmP = (Float_t)pKm4.P();
+      tmp.kpTof = bufPlus->trk.tofMatch;
+      tmp.kmTof = curMinus->tofMatch;
+      tmp.kpM2 = bufPlus->trk.mass2;
+      tmp.kmM2 = curMinus->mass2;
+    }
+
     TLorentzVector pKK = pKp4 + pKm4;
     const Double_t invMass = pKK.M();
-    if (invMass <= 0.0) return kFALSE;
-
+    if (invMass <= 0.0) return femto_phi_mix::kEvalReject;
     TVector3 pPlus = pKp4.Vect();
     TVector3 pMinus = pKm4.Vect();
     const Double_t openingAngle = pPlus.Angle(pMinus);
     TVector3 phiMom = pKK.Vect();
     const Double_t yLab = CalculatePairRapidity(invMass, phiMom);
     const Double_t pairRapidity = ApplyRapidityFrame(yLab);
-    if (openingAngle < phiCfg.minOpeningAngle || openingAngle > phiCfg.maxOpeningAngle) return kFALSE;
-    if (pairRapidity < phiCfg.minPairRapidity || pairRapidity > phiCfg.maxPairRapidity) return kFALSE;
-
-    FemtoCandidate cand;
-    cand.eventIndex = eventIndex;
-    cand.source = kFemtoCandResonance;
-    cand.speciesKey = speciesKey;
-    cand.charge = 0;
-    const Double_t E = TMath::Sqrt(invMass * invMass + phiMom.Mag2());
-    cand.SetP4(TLorentzVector(phiMom.X(), phiMom.Y(), phiMom.Z(), E));
-    cand.y = (Float_t)pairRapidity;
-    cand.reso.invMass = (Float_t)invMass;
-    cand.reso.dcaDaughters = -1.0f;  // cross-event: no common DCA
-    cand.reso.dau1EventIndex = dau1EventIndex;
-    cand.reso.dau1Index = dau1Idx;
-    cand.reso.dau2EventIndex = dau2EventIndex;
-    cand.reso.dau2Index = dau2Idx;
-    cand.reso.betaGamma = -1.0f;
-    out.push_back(cand);
-    ++nCand;
-    if (m_histManager && m_histManager->Get("hPhiMix_MKK")) {
-      m_histManager->Fill("hPhiMix_MKK", invMass);
+    if (openingAngle < phiCfg.minOpeningAngle || openingAngle > phiCfg.maxOpeningAngle) {
+      return femto_phi_mix::kEvalReject;
     }
-    return kTRUE;
+    if (pairRapidity < phiCfg.minPairRapidity || pairRapidity > phiCfg.maxPairRapidity) {
+      return femto_phi_mix::kEvalReject;
+    }
+
+    tmp.cand.eventIndex = eventIndex;
+    tmp.cand.source = kFemtoCandResonance;
+    tmp.cand.speciesKey = speciesKey;
+    tmp.cand.charge = 0;
+    const Double_t E = TMath::Sqrt(invMass * invMass + phiMom.Mag2());
+    tmp.cand.SetP4(TLorentzVector(phiMom.X(), phiMom.Y(), phiMom.Z(), E));
+    tmp.cand.y = (Float_t)pairRapidity;
+    tmp.cand.reso.invMass = (Float_t)invMass;
+    tmp.cand.reso.dcaDaughters = -1.0f;
+    tmp.cand.reso.dau1EventIndex = dau1Event;
+    tmp.cand.reso.dau1Index = dau1Idx;
+    tmp.cand.reso.dau2EventIndex = dau2Event;
+    tmp.cand.reso.dau2Index = dau2Idx;
+    tmp.cand.reso.betaGamma = -1.0f;
+    accepted.push_back(tmp);
+    return femto_phi_mix::kEvalAccept;
   };
 
-  for (size_t ie = 0; ie < pool.size(); ++ie) {
-    if (maxCand > 0 && nCand >= maxCand) break;
+  std::vector<femto_phi_mix::PairCount> storedIndices;
+  femto_phi_mix::CapSampleStats stats;
+  femto_phi_mix::SampleEligiblePairs(plan, maxCand, m_phiMixRng, evaluatePair, storedIndices, stats);
 
-    // current K+ x buffer K-
-    FemtoCandidateStore::const_iterator pKm = pool[ie].candidates.find("phikaon_minus");
-    if (!kaonsPlus.empty() && pKm != pool[ie].candidates.end() && !pKm->second.empty()) {
-      const std::vector<FemtoCandidate>& poolKm = pKm->second;
-      for (size_t ip = 0; ip < kaonsPlus.size(); ++ip) {
-        if (maxCand > 0 && nCand >= maxCand) break;
-        if (!PassPhiDaughterTofPid(kaonsPlus[ip])) continue;
-        TVector3 pPlus = TrackMomentum(kaonsPlus[ip]);
-        TLorentzVector pKp4(pPlus.X(), pPlus.Y(), pPlus.Z(), TMath::Sqrt(mK * mK + pPlus.Mag2()));
-        for (size_t im = 0; im < poolKm.size(); ++im) {
-          if (maxCand > 0 && nCand >= maxCand) break;
-          if (!PassPhiDaughterTofPid(poolKm[im])) continue;
-          if (tryPushPair(pKp4, CandidateP4(poolKm[im]), eventIndex, kaonsPlus[ip].trackIndex, poolKm[im].eventIndex,
-                          poolKm[im].trk.trackIndex)) {
-            FillUsedPhiDaughterPidQa("mix", kTRUE, (Float_t)pPlus.Mag(), kaonsPlus[ip].tofMatch,
-                                     kaonsPlus[ip].mass2);
-            FillUsedPhiDaughterPidQa("mix", kFALSE, (Float_t)CandidateP4(poolKm[im]).P(), poolKm[im].trk.tofMatch,
-                                     poolKm[im].trk.mass2);
-          }
-        }
-      }
-    }
+  // SampleEligiblePairs may evaluate the cap+1 eligible pair (for capHit) which
+  // pushes into `accepted`. Keep only the stored prefix.
+  if (accepted.size() > storedIndices.size()) accepted.resize(storedIndices.size());
 
-    // current K- x buffer K+
-    FemtoCandidateStore::const_iterator pKp = pool[ie].candidates.find("phikaon_plus");
-    if (!kaonsMinus.empty() && pKp != pool[ie].candidates.end() && !pKp->second.empty()) {
-      const std::vector<FemtoCandidate>& poolKp = pKp->second;
-      for (size_t im = 0; im < kaonsMinus.size(); ++im) {
-        if (maxCand > 0 && nCand >= maxCand) break;
-        if (!PassPhiDaughterTofPid(kaonsMinus[im])) continue;
-        TVector3 pMinus = TrackMomentum(kaonsMinus[im]);
-        TLorentzVector pKm4(pMinus.X(), pMinus.Y(), pMinus.Z(), TMath::Sqrt(mK * mK + pMinus.Mag2()));
-        for (size_t ip = 0; ip < poolKp.size(); ++ip) {
-          if (maxCand > 0 && nCand >= maxCand) break;
-          if (!PassPhiDaughterTofPid(poolKp[ip])) continue;
-          if (tryPushPair(CandidateP4(poolKp[ip]), pKm4, poolKp[ip].eventIndex, poolKp[ip].trk.trackIndex, eventIndex,
-                          kaonsMinus[im].trackIndex)) {
-            FillUsedPhiDaughterPidQa("mix", kTRUE, (Float_t)CandidateP4(poolKp[ip]).P(), poolKp[ip].trk.tofMatch,
-                                     poolKp[ip].trk.mass2);
-            FillUsedPhiDaughterPidQa("mix", kFALSE, (Float_t)pMinus.Mag(), kaonsMinus[im].tofMatch,
-                                     kaonsMinus[im].mass2);
-          }
-        }
-      }
+  out.reserve(accepted.size());
+  for (size_t i = 0; i < accepted.size(); ++i) {
+    out.push_back(accepted[i].cand);
+    if (m_histManager && m_histManager->Get("hPhiMix_MKK")) {
+      m_histManager->Fill("hPhiMix_MKK", accepted[i].cand.reso.invMass);
     }
+    FillUsedPhiDaughterPidQa("mix", kTRUE, accepted[i].kpP, accepted[i].kpTof, accepted[i].kpM2);
+    FillUsedPhiDaughterPidQa("mix", kFALSE, accepted[i].kmP, accepted[i].kmTof, accepted[i].kmM2);
   }
 
+  const Double_t nStored = (Double_t)out.size();
   if (m_histManager && m_histManager->Get("hPhiMix_NCand")) {
-    m_histManager->Fill("hPhiMix_NCand", (Double_t)nCand);
+    m_histManager->Fill("hPhiMix_NCand", nStored);
   }
+  if (m_histManager && m_histManager->Get("hPhiMix_NStoredWide")) {
+    m_histManager->Fill("hPhiMix_NStoredWide", nStored);
+  }
+  if (m_histManager && m_histManager->Get("hPhiMix_PairPopulationLog10") && plan.eligiblePairs > 0) {
+    m_histManager->Fill("hPhiMix_PairPopulationLog10", TMath::Log10((Double_t)plan.eligiblePairs));
+  }
+  if (m_histManager && m_histManager->Get("hPhiMix_AttemptedLog10") && stats.attempted > 0) {
+    m_histManager->Fill("hPhiMix_AttemptedLog10", TMath::Log10((Double_t)stats.attempted));
+  }
+  if (m_histManager && m_histManager->Get("hPhiMix_CapHit")) {
+    m_histManager->Fill("hPhiMix_CapHit", stats.capHit ? 1.0 : 0.0);
+  }
+  if (m_histManager && m_histManager->Get("hPhiMix_KeepFraction") && plan.eligiblePairs > 0) {
+    m_histManager->Fill("hPhiMix_KeepFraction", nStored / (Double_t)plan.eligiblePairs);
+  }
+  if (m_histManager && m_histManager->Get("hPhiMix_FwdRevRatio") &&
+      (stats.storedForward + stats.storedReverse) > 0) {
+    m_histManager->Fill("hPhiMix_FwdRevRatio",
+                        (Double_t)stats.storedForward / (Double_t)(stats.storedForward + stats.storedReverse));
+  }
+
+  auto fillQa = [&](femto_phi_mix::PhiMixQaBin bin, femto_phi_mix::PairCount count) {
+    if (m_histManager && m_histManager->Get("hPhiMixSamplerQA") && count > 0) {
+      m_histManager->Fill2DWeighted("hPhiMixSamplerQA", (Double_t)bin, 0.0, (Double_t)count);
+    }
+  };
+  fillQa(femto_phi_mix::kQaPairPopulation, plan.eligiblePairs);
+  fillQa(femto_phi_mix::kQaPairPopulationFwd, plan.eligibleForwardPairs);
+  fillQa(femto_phi_mix::kQaPairPopulationRev, plan.eligibleReversePairs);
+  fillQa(femto_phi_mix::kQaCombosPrePid, planPrePid.eligiblePairs);
+  fillQa(femto_phi_mix::kQaPidPassCurrentPlus, static_cast<femto_phi_mix::PairCount>(curKp.size()));
+  fillQa(femto_phi_mix::kQaPidPassCurrentMinus, static_cast<femto_phi_mix::PairCount>(curKm.size()));
+  fillQa(femto_phi_mix::kQaPidPassBufferPlus, nPidBufKp);
+  fillQa(femto_phi_mix::kQaPidPassBufferMinus, nPidBufKm);
+  fillQa(femto_phi_mix::kQaAttempted, stats.attempted);
+  fillQa(femto_phi_mix::kQaAttemptedFwd, stats.attemptedForward);
+  fillQa(femto_phi_mix::kQaAttemptedRev, stats.attemptedReverse);
+  fillQa(femto_phi_mix::kQaStored, static_cast<femto_phi_mix::PairCount>(out.size()));
+  fillQa(femto_phi_mix::kQaStoredFwd, stats.storedForward);
+  fillQa(femto_phi_mix::kQaStoredRev, stats.storedReverse);
+  fillQa(femto_phi_mix::kQaPairCutRejected, stats.pairCutRejected);
+  fillQa(femto_phi_mix::kQaEligibleLowerBound, stats.eligibleLowerBound);
+  if (stats.capHit) fillQa(femto_phi_mix::kQaCapHit, 1);
+  if (stats.nEligibleExactValid) fillQa(femto_phi_mix::kQaEligibleExact, stats.nEligibleExact);
+  fillQa(femto_phi_mix::kQaIndexDuplicate, stats.duplicateIndexErrors);
+  fillQa(femto_phi_mix::kQaIndexOutOfRange, stats.outOfRangeErrors);
+  fillQa(femto_phi_mix::kQaSeed, static_cast<femto_phi_mix::PairCount>(m_phiMixSeedUsed));
+  fillQa(femto_phi_mix::kQaEvents, 1);
 }
 
 void StFemtoMaker::FillPhiDaughterPidTrackQa(const std::vector<TrackState>& kaonsPlus,

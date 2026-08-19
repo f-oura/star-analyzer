@@ -368,6 +368,46 @@ def phi_dau_pid_blocks() -> dict[str, str]:
     return blocks
 
 
+def phi_mix_sampling_blocks() -> dict[str, str]:
+    """phi_mix lazy-permutation cap QA. NPairPopulation is exact pair combinations
+    after production PID (both directions combined). NEligibleExact is filled only
+    on a full scan (uncapped or population <= cap). Do not treat EligibleLowerBound
+    as exact Nraw.
+    """
+    return {
+        "hPhiMix_NStoredWide": """  hPhiMix_NStoredWide:
+    axis: *PhiMixStored
+    title: "phi_mix stored candidates per event;N_{stored};Counts"
+""",
+        "hPhiMix_PairPopulationLog10": """  hPhiMix_PairPopulationLog10:
+    axis: *PhiMixLog10Pairs
+    title: "phi_mix pair population log_{10}(NPairPopulation);log_{10} N_{pop};Counts"
+""",
+        "hPhiMix_AttemptedLog10": """  hPhiMix_AttemptedLog10:
+    axis: *PhiMixLog10Pairs
+    title: "phi_mix attempted pair evaluations log_{10}(NAttempted);log_{10} N_{att};Counts"
+""",
+        "hPhiMix_CapHit": """  hPhiMix_CapHit:
+    axis: *CapFlag
+    title: "phi_mix cap hit (N_{eligible}>cap);0=no 1=yes;Counts"
+""",
+        "hPhiMix_KeepFraction": """  hPhiMix_KeepFraction:
+    axis: *Fraction01
+    title: "phi_mix keep fraction NStored/NPairPopulation;fraction;Counts"
+""",
+        "hPhiMix_FwdRevRatio": """  hPhiMix_FwdRevRatio:
+    axis: *Fraction01
+    title: "phi_mix stored forward fraction NStoredFwd/(Fwd+Rev);fraction;Counts"
+""",
+        "hPhiMixSamplerQA": """  hPhiMixSamplerQA:
+    type: TH2D
+    xAxis: *PhiMixSamplerStatus
+    yAxis: *PhiMixDummy
+    title: "phi_mix sampler counters (weighted);status bin;dummy"
+""",
+    }
+
+
 def main() -> None:
     he4_text = (HIST_DIR / "hist_anaFemtoPhi4He.yaml").read_text()
     proton_text = (HIST_DIR / "hist_anaFemtoPhiProton.yaml").read_text()
@@ -424,6 +464,33 @@ def main() -> None:
             "    min: -0.5\n"
             "    max: 3.5\n\n"
         )
+    if "  PhiMixStored: &PhiMixStored\n" not in merged_axes:
+        merged_axes = merged_axes.rstrip() + (
+            "\n  PhiMixStored: &PhiMixStored\n"
+            "    nBins: 251\n"
+            "    min: -0.5\n"
+            "    max: 2500.5\n"
+            "  PhiMixLog10Pairs: &PhiMixLog10Pairs\n"
+            "    nBins: 120\n"
+            "    min: 0.0\n"
+            "    max: 12.0\n"
+            "  CapFlag: &CapFlag\n"
+            "    nBins: 2\n"
+            "    min: -0.5\n"
+            "    max: 1.5\n"
+            "  Fraction01: &Fraction01\n"
+            "    nBins: 100\n"
+            "    min: 0.0\n"
+            "    max: 1.0\n"
+            "  PhiMixSamplerStatus: &PhiMixSamplerStatus\n"
+            "    nBins: 22\n"
+            "    min: -0.5\n"
+            "    max: 21.5\n"
+            "  PhiMixDummy: &PhiMixDummy\n"
+            "    nBins: 1\n"
+            "    min: -0.5\n"
+            "    max: 0.5\n\n"
+        )
     if not merged_axes.endswith("\n"):
         merged_axes += "\n"
 
@@ -439,6 +506,7 @@ def main() -> None:
 
     common.update(phi_near_track_pid_blocks())
     common.update(phi_dau_pid_blocks())
+    common.update(phi_mix_sampling_blocks())
     common["hMixSamplerQA"] = """  hMixSamplerQA:
     type: TH2D
     xAxis: *MixSamplerStatus

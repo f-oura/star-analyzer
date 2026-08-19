@@ -4,6 +4,7 @@
 #include "StMaker.h"
 #include "StPhiKKReconstruction.h"
 #include "FemtoCandidate.h"
+#include "FemtoPhiMixSampler.h"
 #include "cuts/FemtoConfig.h"
 #include "StarClassLibrary/StPhysicalHelixD.hh"
 
@@ -110,6 +111,8 @@ class StFemtoMaker : public StMaker {
   std::vector<FemtoCandidate> m_phiQaPreMassTofStrict;
   std::vector<NearTrackPidQa> m_nearTrackPidQa;
   std::map<Int_t, std::deque<FemtoMixingEvent> > m_mixingPool;
+  femto_phi_mix::SplitMix64 m_phiMixRng;
+  UInt_t m_phiMixSeedUsed;
 
   Bool_t PassEventCuts(Float_t vz, Float_t vr, Int_t refMult, Float_t vzVpd);
   Bool_t PassTrackCuts(StPicoTrack* trk, TVector3& pVtx);

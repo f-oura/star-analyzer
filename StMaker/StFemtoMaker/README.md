@@ -247,6 +247,16 @@ YAML keys on femto config (not `PIDCutConfig`): `protonChargeMode`, `protonMaxDc
 
 When `rotationEnabled: true`, species `phi_rot` with `particleKey: phi_rotation` fills rotated φ candidates (`rotationN` azimuth rotations per real KK pair; DCA/PID/TOF evaluated on real tracks). Pair with proton via channel `phi_rot_proton`.
 
+## Fully-mixed KK (`phi_mix`)
+
+- **Species:** `phi_mix` / `particleKey: phi_fully_mixed` when `fullyMixedEnabled: true`.
+- **Population:** production-PID daughters (`PassPhiDaughterTofPid`) in both directions combined — current K⁺ × buffered K⁻ and buffered K⁺ × current K⁻ — into one pair-index space. Eligible pairs also pass invMass>0, opening-angle, and pair-rapidity cuts.
+- **Cap:** `fullyMixedMaxCandidates` is the stored-candidate count **per current event** on the combined set (not per direction). Production uses `2000`. `<=0` keeps every eligible pair (validation only; do not run uncapped on full production).
+- **Sampling:** lazy Fisher–Yates permutation of 64-bit flat pair indices (`include/FemtoPhiMixSampler.h`). The first `cap` eligible pairs in that random order are stored, which is a uniform sample without replacement from the eligible set. No sampling weights / event reweighting.
+- **RNG:** independent SplitMix64, **not** `gRandom`. YAML `fullyMixedSamplingSeed` (production `314159`). `>0` is fully reproducible for the same input; `0` is time-based and `Validate()` warns. Changing `rotationN` does not change the `phi_mix` sample.
+- **QA:** `NPairPopulation` is the exact post-PID combination count. `NAttempted` is how many indices were evaluated. `EligibleLowerBound` is a lower bound when the scan stops at cap+1; `NEligibleExact` is filled only on a full scan. `hPhiMix_MKK` is stored candidates only (not a raw/unscanned MKK).
+- **Tests:** `make test-phi-mix-sampler` (standalone). Does not change `FillMixedEventPairs`.
+
 ## Agent / developer checklist
 
 1. Add species block with unique species key

@@ -153,7 +153,8 @@ class FemtoConfig {
   Bool_t fullyMixedEnabled;
   std::string fullyMixedSpeciesKey;
   std::string fullyMixedParticleKey;
-  Int_t fullyMixedMaxCandidates; // cap per event; <=0 = uncapped (not recommended)
+  Int_t fullyMixedMaxCandidates; // cap per event on combined fwd+rev; <=0 = uncapped (validation only)
+  Int_t fullyMixedSamplingSeed;  // >0 fixed SplitMix64 seed; 0 = time-based (not for production)
 
   // checkHist CF: merge this many adjacent k* bins after merge (1 = no rebin).
   Int_t cfRebinFactor;

@@ -144,8 +144,9 @@ MAKER_LIBS := $(patsubst %,$(LIB_DIR)/lib%.so,$(MAKER_NAMES))
 
 TEST_FEMTO_MIXING_SAMPLER := $(LIB_DIR)/test_femto_mixing_sampler
 TEST_PHI_DAUGHTER_PID := $(LIB_DIR)/test_phi_daughter_pid
+TEST_PHI_MIX_SAMPLER := $(LIB_DIR)/test_phi_mix_sampler
 
-.PHONY: all clean test-femto-mixing-sampler test-phi-daughter-pid
+.PHONY: all clean test-femto-mixing-sampler test-phi-daughter-pid test-phi-mix-sampler
 
 all: $(LIB_DIR)/libStarAnaConfig.so $(LIB_DIR)/$(LIB_RMC_NAME) $(LIB_DIR)/$(LIB_COMMON_NAME) $(MAKER_LIBS)
 
@@ -160,6 +161,12 @@ test-phi-daughter-pid: $(TEST_PHI_DAUGHTER_PID)
 
 $(TEST_PHI_DAUGHTER_PID): tests/test_phi_daughter_pid.cpp include/PhiDaughterPid.h include/FemtoCandidate.h | $(LIB_DIR)
 	$(CXX) $(ARCH_FLAGS) -O2 -Wall -std=c++11 $(ROOTCFLAGS) -Iinclude $< -o $@ $(ROOTLIBS)
+
+test-phi-mix-sampler: $(TEST_PHI_MIX_SAMPLER)
+	$(TEST_PHI_MIX_SAMPLER)
+
+$(TEST_PHI_MIX_SAMPLER): tests/test_phi_mix_sampler.cpp include/FemtoPhiMixSampler.h include/FemtoMixingSampler.h | $(LIB_DIR)
+	$(CXX) $(ARCH_FLAGS) -O2 -Wall -std=c++11 -Iinclude $< -o $@
 
 # Build yaml-cpp via CMake (static lib, must match STAR/ROOT bitness)
 $(YAML_CPP_BUILD)/libyaml-cpp.a:
@@ -242,5 +249,5 @@ $(foreach maker,$(MAKER_NAMES),$(eval $(call MAKER_RULE,$(maker))))
 
 clean:
 	rm -f $(LIB_DIR)/*.o $(LIB_DIR)/*.so
-	rm -f $(TEST_FEMTO_MIXING_SAMPLER) $(TEST_PHI_DAUGHTER_PID)
+	rm -f $(TEST_FEMTO_MIXING_SAMPLER) $(TEST_PHI_DAUGHTER_PID) $(TEST_PHI_MIX_SAMPLER)
 	rm -rf $(YAML_CPP_BUILD)
